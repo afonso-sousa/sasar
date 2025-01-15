@@ -1,0 +1,15 @@
+CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
+    --output_dir output/inserter \
+    --train_file input/paws/train.json.ins \
+    --validation_file input/paws/validation.json.ins \
+    --model_name_or_path bert-base-uncased \
+    --label_map_file input/label_map.json \
+    --max_seq_length 128 \
+    --num_train_epochs 500 \
+    --per_device_train_batch_size 32 \
+    --per_device_eval_batch_size 32 \
+    --use_pointing \
+    --learning_rate 3e-5 \
+    --pointing_weight 1 \
+    --use_open_vocab \
+    --train_insertion

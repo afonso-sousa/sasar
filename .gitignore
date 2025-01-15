@@ -1,0 +1,10 @@
+### Python ###
+__pycache__/
+
+### VS Code ###
+.vscode/*
+
+### Local ###
+input/
+output/
+processed-data/
