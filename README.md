@@ -7,6 +7,11 @@ task into two sub-tasks: **tagging** to decide on the subset of input tokens and
 their order in the output text and **insertion** to in-fill the missing tokens in
 the output not present in the input.
 
+## Setup environment
+
+### Download pseudo-semantic graphs
+We use the pseudo-semantic graphs from https://github.com/afonso-sousa/sem_para_gen.git. Get the folder /pseudo_semantic_graph into the project's root folder.
+
 ## Usage Instructions
 
 Running an experiment with SASAR consists of the following steps:
@@ -16,13 +21,11 @@ Running an experiment with SASAR consists of the following steps:
 3. Finetune the tagging/insertion models.
 4. Compute predictions.
 
+*But, don't worry! Everything is readily available as bash scripts.*
+
 
 ### 1. Label map construction
-
-
 ```
-# Label map construction
-
 sh ./scripts/vocabulary_constructor.sh
 ```
 
@@ -31,98 +34,28 @@ sh ./scripts/vocabulary_constructor.sh
 The PAWS dataset can be found in the [official repository](https://github.com/google-research-datasets/paws) or for ease of use through the [HuggingFace Hub](https://huggingface.co/datasets/paws)
 
 ```
-# Preprocess
-
-python preprocess_main.py \
-  --dataset_dir "paws" \
-  --split "train" \
-  --output_file "input/train.json" \
-  --label_map_file "input/label_map.json" \
-  --vocab_file="input/vocab.txt" \
-  --do_lower_case \
-  --use_open_vocab \
-  --max_seq_length 128 \
-  --use_pointing
-
-python preprocess_main.py \
-  --dataset_dir "paws" \
-  --split "validation" \
-  --output_file "input/validation.json" \
-  --label_map_file "input/label_map.json" \
-  --vocab_file="input/vocab.txt" \
-  --do_lower_case \
-  --use_open_vocab \
-  --max_seq_length 128 \
-  --use_pointing
+sh scripts/preprocess_data.sh
 ```
+
+You may run it twice for train and validation sets.
 
 ### 3. Model Training
 
-Model hyperparameters are specified in [text_editing_config.json](input/text_editing_config.json).
-**note** These models can be trained independently, as such it is quicker to train them in parallel rather than sequentially.
-
-
-Train the models on CPU/GPU.
-
+Run the following command to train the tagger:
 ```
-# Train tagger
-python run.py \
-    --output_dir output/tagger \
-    --train_file input/train.json \
-    --validation_file input/validation.json \
-    --bert_config_tagging input/text_editing_config.json \
-    --vocab_file input/vocab.txt \
-    --label_map_file input/label_map.json \
-    --max_seq_length 128 \
-    --num_train_epochs 500 \
-    --per_device_train_batch_size 32 \
-    --per_device_eval_batch_size 32 \
-    --use_pointing \
-    --learning_rate 3e-5 \
-    --pointing_weight 1 \
-    --use_weighted_labels \
-    --use_open_vocab
-
-# Train inserter
-python run.py \
-    --output_dir output/inserter \
-    --train_file input/train.json.ins \
-    --validation_file input/validation.json.ins \
-    --bert_config_insertion input/text_editing_config.json \
-    --vocab_file input/vocab.txt \
-    --label_map_file input/label_map.json \
-    --max_seq_length 128 \
-    --num_train_epochs 500 \
-    --per_device_train_batch_size 32 \
-    --per_device_eval_batch_size 32 \
-    --use_pointing \
-    --learning_rate 3e-5 \
-    --pointing_weight 1 \
-    --use_open_vocab \
-    --train_insertion
+sh ./script/train_tagger.sh
 ```
+
+Or this command to train the inserter:
+```
+sh ./script/train_inserter.sh
+```
+
+**Note** These models can be trained independently, as such it is quicker to train them in parallel rather than sequentially.
 
 ### 4. Prediction
-
-
 ```
-# Predict
-
-python predict_main.py \
-  --dataset_dir "paws" \
-  --split "test" \
-  --predict_output_file output/pred.tsv \
-  --label_map_file input/label_map.json \
-  --vocab_file input/vocab.txt \
-  --max_seq_length 128 \
-  --predict_batch_size 32 \
-  --do_lower_case \
-  --use_open_vocab \
-  --bert_config_tagging input/text_editing_config.json \
-  --bert_config_insertion input/text_editing_config.json \
-  --model_tagging_filepath output/tagger \
-  --model_insertion_filepath output/inserter \
-  --use_pointing
+sh ./scripts/predict.sh
 ```
 
 The predictions output a TSV file with four columns: Source, the input to the insertion model, the final output, and the reference. Note the felix output is tokenized (WordPieces), including a start "[CLS]" and end "[SEP]". WordPieces can be removed by replacing " ##" with "". Additionally words have been split on punctuation "don't -> don ' t", this must also be reversed.
@@ -133,7 +66,6 @@ You can run all unit tests executing the following command:
 ```
 python -m unittest discover -p "*_test.py"
 ```
-
 
 ## License
 

@@ -7,7 +7,7 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --model_name_or_path $model_name \
     --label_map_file input/label_map.json \
     --max_seq_length 128 \
-    --num_train_epochs 500 \
+    --num_train_epochs 50 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 32 \
     --use_pointing \
@@ -17,4 +17,4 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --pointing_weight 1 \
     --use_weighted_labels \
     --use_open_vocab \
-    --patience 5
+    --with_graph

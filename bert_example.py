@@ -147,10 +147,11 @@ class BertExampleBuilder:
         merged_sources = merged_sources.strip()
         if self._do_lower_case:
             merged_sources = merged_sources.lower()
-            # [SEP] Should always be uppercase.
-            merged_sources = merged_sources.replace(
-                constants.SEP.lower(), constants.SEP
-            )
+            # Ensure [SEP] or equivalent separator token is always uppercase.
+            if self.tokenizer.sep_token:
+                merged_sources = merged_sources.replace(
+                    self.tokenizer.sep_token.lower(), self.tokenizer.sep_token
+                )
 
         tokenized_input = self.tokenizer(
             merged_sources,

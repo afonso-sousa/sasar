@@ -1,10 +1,16 @@
+import os
+
 import torch
-from transformers import BertForMaskedLM, DataCollatorForSeq2Seq
+from transformers import (
+    AutoConfig,
+    BertForMaskedLM,
+    DataCollatorForSeq2Seq,
+    default_data_collator,
+)
 
 import beam_search
 import constants
 import insertion_converter
-import my_models
 import preprocess
 import utils
 from my_tagger import MyTagger
@@ -13,14 +19,11 @@ from my_tagger import MyTagger
 class FelixPredictor:
     def __init__(
         self,
-        bert_config_tagging,
-        bert_config_insertion,
         model_tagging_filepath,
         model_insertion_filepath,
+        tokenizer_name,
         label_map_file,
         sequence_length=128,
-        do_lowercase=True,
-        vocab_file=None,
         use_open_vocab=False,
         is_pointing=False,
         special_glue_string_for_joining_sources=" ",
@@ -28,9 +31,6 @@ class FelixPredictor:
         """Initializes an instance of FelixPredictor.
 
         Args:
-            bert_config_tagging: The config file for the tagging model.
-            bert_config_insertion: The config file for the insertion model. Only
-              needed in the case of use_open_vocab (Felix/FelixInsert).
             model_tagging_filepath: The file location of the tagging model.  If not
               provided in a randomly initialized model is used (not recommended).
             model_insertion_filepath: The file location of the insertion model. Only
@@ -39,7 +39,6 @@ class FelixPredictor:
             label_map_file: Label map file path.
             sequence_length: Maximum length of a sequence.
             do_lowercase: If the input text is lowercased.
-            vocab_file: BERT vocab file.
             use_open_vocab: If it is an open vocab model (felix/felixInsert).
               Currently only True is supported.
             is_pointing: if the tagging model uses a pointing mechanism. Currently
@@ -51,15 +50,11 @@ class FelixPredictor:
         """
         if not use_open_vocab:
             raise ValueError("Currently only use_open_vocab=True is supported")
-        self._bert_config_insertion = bert_config_insertion
-        self._bert_config_tagging = bert_config_tagging
         if model_tagging_filepath is None:
             print(
                 "No filepath is provided for tagging model, a randomly initialized "
                 "model will be used!"
             )
-        if bert_config_insertion is None and use_open_vocab:
-            raise ValueError("bert_config_insertion needs to be provided.")
         if model_insertion_filepath is None and not use_open_vocab:
             print(
                 "No filepath is provided for insertion model, a randomly initialized model will be used!"
@@ -72,14 +67,12 @@ class FelixPredictor:
         self._sequence_length = sequence_length
         self._use_open_vocab = use_open_vocab
         self._is_pointing = is_pointing
-        self._do_lowercase = do_lowercase
 
         self._builder = preprocess.initialize_builder(
             use_open_vocab=self._use_open_vocab,
             label_map_file=label_map_file,
             max_seq_length=self._sequence_length,
-            do_lower_case=self._do_lowercase,
-            vocab_file=vocab_file,
+            tokenizer_name=tokenizer_name,
             special_glue_string_for_sources=special_glue_string_for_joining_sources,
         )
         self._inverse_label_map = {
@@ -97,9 +90,7 @@ class FelixPredictor:
           taggings_outputs: Intermediate realized output of the tagging model.
           insertion_outputs: The final realized output of the model after running the tagging and insertion model.
         """
-        taggings_outputs = self._predict_and_realize_batch(
-            batch, is_insertion=False
-        )
+        taggings_outputs = self._predict_and_realize_batch(batch, is_insertion=False)
         insertion_outputs = self._predict_and_realize_batch(
             taggings_outputs, is_insertion=True
         )
@@ -108,32 +99,21 @@ class FelixPredictor:
     def _load_model(self, is_insertion=True):
         """Loads either an insertion or tagging model for inference."""
         if is_insertion:
-            if self._model_insertion_filepath:
-                model = BertForMaskedLM.from_pretrained(
-                    self._model_insertion_filepath,
-                    config=self._bert_config_insertion,
-                )
-            else:
-                model = my_models.get_insertion_model(
-                    self._bert_config_insertion,
-                )
-            self._insertion_model = model
+            config_path = os.path.join(self._model_insertion_filepath, "config.json")
+            config = AutoConfig.from_pretrained(config_path)
+            self._insertion_model = BertForMaskedLM.from_pretrained(
+                self._model_insertion_filepath,
+                config=config,
+            )
+            self._insertion_model.eval()
         else:
-            if self._model_tagging_filepath:
-                model = MyTagger.from_pretrained(
-                    self._model_tagging_filepath,
-                    config=self._bert_config_tagging,
-                )
-            else:
-                model = my_models.get_tagging_model(
-                    self._bert_config_tagging,
-                    self._sequence_length,
-                    use_pointing=self._is_pointing,
-                    pointing_weight=0,
-                )
-            self._tagging_model = model
-
-        model.eval()
+            config_path = os.path.join(self._model_tagging_filepath, "config.json")
+            config = AutoConfig.from_pretrained(config_path)
+            self._tagging_model = MyTagger.from_pretrained(
+                self._model_tagging_filepath,
+                config=config,
+            )
+            self._tagging_model.eval()
 
     def _predict_and_realize_batch(self, source_sentences, is_insertion):
         """Run tagging inference on a batch and return the realizations."""
@@ -143,22 +123,16 @@ class FelixPredictor:
         ) = self._convert_source_sentences_into_batch(
             source_sentences, is_insertion=is_insertion
         )
-        predictions = self._predict_batch(
-            batch_list, is_insertion=is_insertion
-        )
+        predictions = self._predict_batch(batch_list, is_insertion=is_insertion)
         if is_insertion:
             realizations = self._realize_insertion_batch(
                 batch_dictionaries, predictions
             )
         else:
-            realizations = self._realize_tagging_batch(
-                batch_dictionaries, predictions
-            )
+            realizations = self._realize_tagging_batch(batch_dictionaries, predictions)
         return realizations
 
-    def _convert_source_sentences_into_batch(
-        self, source_sentences, is_insertion
-    ):
+    def _convert_source_sentences_into_batch(self, source_sentences, is_insertion):
         """Converts source sentence into a batch."""
         batch_dictionaries = []
         for source_sentence in source_sentences:
@@ -181,9 +155,7 @@ class FelixPredictor:
                     {
                         "input_ids": torch.tensor(example["input_ids"]),
                         "attention_mask": torch.tensor(example["input_mask"]),
-                        "token_type_ids": torch.tensor(
-                            example["token_type_ids"]
-                        ),
+                        "token_type_ids": torch.tensor(example["token_type_ids"]),
                     }
                 )
             else:
@@ -204,6 +176,10 @@ class FelixPredictor:
         data_collator = DataCollatorForSeq2Seq(self._builder.tokenizer)
 
         batch_list = data_collator(batch_dictionaries)
+
+        # DataCollatorForSeq2Seq will add "labels" to the batch_list, which is not needed.
+        if "labels" in batch_list:
+            del batch_list["labels"]
 
         return batch_dictionaries, batch_list
 
@@ -237,19 +213,13 @@ class FelixPredictor:
             realizations.append(realization)
         return realizations
 
-    def _realize_insertion_single(
-        self, input_ids, end_index, predicted_tokens
-    ):
+    def _realize_insertion_single(self, input_ids, end_index, predicted_tokens):
         """Realizes the predictions from the insertion model."""
-        delete_span_end_token_id = (
-            self._builder.tokenizer.convert_tokens_to_ids(
-                constants.DELETE_SPAN_END
-            )
+        delete_span_end_token_id = self._builder.tokenizer.convert_tokens_to_ids(
+            constants.DELETE_SPAN_END
         )
-        delete_span_start_token_id = (
-            self._builder.tokenizer.convert_tokens_to_ids(
-                constants.DELETE_SPAN_START
-            )
+        delete_span_start_token_id = self._builder.tokenizer.convert_tokens_to_ids(
+            constants.DELETE_SPAN_START
         )
         current_mask = 0
         new_ids = []
@@ -355,8 +325,7 @@ class FelixPredictor:
           beam_size: The size of the beam.
 
         Returns:
-          Realized predictions including deleted tokens. It is possible that beam
-          search fails (producing malformed output), in this case return None.
+          Realized predictions including deleted tokens. It is possible that beam search fails (producing malformed output), in this case return None.
         """
         predicted_tags = torch.argmax(tag_logits, dim=1).tolist()
         non_deleted_indexes = set(
@@ -364,14 +333,12 @@ class FelixPredictor:
             for i, tag in enumerate(predicted_tags[: last_token_index + 1])
             if self._inverse_label_map[int(tag)] not in constants.DELETED_TAGS
         )
-        source_tokens = self._builder.tokenizer.convert_ids_to_tokens(
-            list(input_ids)
-        )
+        source_tokens = self._builder.tokenizer.convert_ids_to_tokens(list(input_ids))
         sep_indexes = set(
             [
                 i
                 for i, token in enumerate(source_tokens)
-                if token.lower() == constants.SEP.lower()
+                if token.lower() == self._builder.tokenizer.sep_token.lower()
                 and i in non_deleted_indexes
             ]
         )
@@ -398,8 +365,7 @@ class FelixPredictor:
 
         TODO: Refactor this function to share code with
         `_create_masked_source` from insertion_converter.py to reduce code
-        duplication and to ensure that the insertion example creation is consistent
-        between preprocessing and prediction.
+        duplication and to ensure that the insertion example creation is consistent between preprocessing and prediction.
 
         Args:
           source_token_ids: List of source token ids.
@@ -460,9 +426,9 @@ class FelixPredictor:
 
         if not self._use_open_vocab:
             out_tokens_with_deletes = out_tokens
-        assert out_tokens_with_deletes[0] == (constants.CLS), (
+        assert out_tokens_with_deletes[0] == (self._builder.tokenizer.cls_token), (
             f" {out_tokens_with_deletes} did not start/end with the correct tokens "
-            f"{constants.CLS}, {constants.SEP}"
+            f"{self._builder.tokenizer.cls_token}, {self._builder.tokenizer.sep_token}"
         )
         return out_tokens_with_deletes
 
@@ -488,12 +454,8 @@ class FelixPredictor:
         predicted_tags = torch.argmax(tag_logits, dim=1).tolist()[
             : last_token_index + 1
         ]
-        label_tuples = [
-            self._inverse_label_map[int(tag)] for tag in predicted_tags
-        ]
-        tokens = self._builder.build_insertion_tokens(
-            input_tokens, label_tuples
-        )
+        label_tuples = [self._inverse_label_map[int(tag)] for tag in predicted_tags]
+        tokens = self._builder.build_insertion_tokens(input_tokens, label_tuples)
         if tokens is None:
             return None
         return tokens[0]

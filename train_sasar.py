@@ -91,17 +91,15 @@ def parse_args():
         help="The model checkpoint for weights initialization.",
     )
     parser.add_argument(
-        "--do_lower_case",
-        type=bool,
-        default=True,
-        help="Whether to lower case the input text. Should be True for uncased models and False for cased models.",
-    )
-    parser.add_argument(
         "--use_open_vocab",
         action="store_true",
         help="Currently only use_open_vocab=True is supported",
     )
-    parser.add_argument("--train_insertion", action="store_true")
+    parser.add_argument(
+        "--train_insertion",
+        action="store_true",
+        help="Whether to train an inserter (True) or a tagger (False)",
+    )
     parser.add_argument("--max_seq_length", type=int, help="Maximum sequence length")
     parser.add_argument(
         "--max_train_steps",
@@ -115,6 +113,12 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, help="Initial learning rate")
     parser.add_argument(
         "--weight_decay", type=float, default=0.0, help="Weight decay to use."
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=None,
+        help="The number of epochs to wait for the validation loss to improve before stopping training.",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -147,6 +151,11 @@ def parse_args():
         type=str,
         default=None,
         help="Where to store the final model.",
+    )
+    parser.add_argument(
+        "--with_graph",
+        action="store_true",
+        help="Whether to use pseudo semantic graphs for the tagger model",
     )
     parser.add_argument(
         "--return_entity_level_metrics",
@@ -197,6 +206,9 @@ def parse_args():
 
     if not args.use_open_vocab:
         raise ValueError("Currently only `use_open_vocab=True` is supported")
+
+    if args.with_graph and args.train_insertion:
+        raise ValueError("Only tagging models are supported with graphs")
 
     return args
 
@@ -449,6 +461,9 @@ def main():
     # update the progress_bar if load from checkpoint
     progress_bar.update(completed_steps)
 
+    early_stopping_patience = args.patience
+    best_metric = None
+    patience_counter = 0
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
         if (
@@ -480,7 +495,7 @@ def main():
 
             if isinstance(checkpointing_steps, int):
                 if completed_steps % checkpointing_steps == 0:
-                    output_dir = f"step_{completed_steps }"
+                    output_dir = f"step_{completed_steps}"
                     if args.output_dir is not None:
                         output_dir = os.path.join(args.output_dir, output_dir)
                     accelerator.save_state(output_dir)
@@ -489,7 +504,7 @@ def main():
                 break
 
         model.eval()
-
+        current_metric = None
         if args.train_insertion:
             losses = []
             for step, batch in enumerate(eval_dataloader):
@@ -511,6 +526,7 @@ def main():
                 perplexity = float("inf")
 
             accelerator.print(f"epoch {epoch}:", {"perplexity": perplexity})
+            current_metric = eval_loss
         else:
             for step, batch in enumerate(eval_dataloader):
                 with torch.no_grad():
@@ -531,6 +547,34 @@ def main():
 
             eval_metric = compute_metrics()
             accelerator.print(f"epoch {epoch}:", eval_metric)
+            current_metric = eval_metric["f1"]
+
+        if early_stopping_patience is not None:
+            if (
+                best_metric is None
+                or (args.train_insertion and current_metric < best_metric)
+                or (not args.train_insertion and current_metric > best_metric)
+            ):
+                best_metric = current_metric
+                patience_counter = 0
+                # Save the best model
+                if args.output_dir is not None:
+                    accelerator.wait_for_everyone()
+                    unwrapped_model = accelerator.unwrap_model(model)
+                    unwrapped_model.save_pretrained(
+                        os.path.join(args.output_dir, "best_model"),
+                        is_main_process=accelerator.is_main_process,
+                        save_function=accelerator.save,
+                    )
+            else:
+                patience_counter += 1
+                accelerator.print(
+                    f"No improvement in metric. Patience counter: {patience_counter}/{early_stopping_patience}"
+                )
+
+            if patience_counter >= early_stopping_patience:
+                accelerator.print("Early stopping triggered!")
+                break
 
         if args.checkpointing_steps == "epoch":
             output_dir = f"epoch_{epoch}"
