@@ -2,9 +2,9 @@ import collections
 import tempfile
 import unittest
 
-import bert_example
 import insertion_converter
 import pointing_converter
+import transformer_example
 
 
 class BertExampleTest(unittest.TestCase):
@@ -25,15 +25,13 @@ class BertExampleTest(unittest.TestCase):
             "[unused2]",
         ]
         with tempfile.NamedTemporaryFile(delete=False) as vocab_file:
-            vocab_file.write(
-                "".join([x + "\n" for x in vocab_tokens]).encode()
-            )
+            vocab_file.write("".join([x + "\n" for x in vocab_tokens]).encode())
 
         label_map = {"KEEP": 1, "DELETE": 2, "KEEP|1": 3, "KEEP|2:": 4}
         max_seq_length = 8
         do_lower_case = False
         converter = pointing_converter.PointingConverter([])
-        self._builder = bert_example.BertExampleBuilder(
+        self._builder = transformer_example.TransformerExampleBuilder(
             label_map=label_map,
             vocab_file=vocab_file.name,
             max_seq_length=max_seq_length,
@@ -46,7 +44,7 @@ class BertExampleTest(unittest.TestCase):
             vocab_file=vocab_file.name,
             label_map=label_map,
         )
-        self._builder_mask = bert_example.BertExampleBuilder(
+        self._builder_mask = transformer_example.TransformerExampleBuilder(
             label_map=label_map,
             vocab_file=vocab_file.name,
             max_seq_length=max_seq_length,
@@ -70,14 +68,12 @@ class BertExampleTest(unittest.TestCase):
             label_weights[label] += label_mask
         label_weights_values = list(label_weights.values())
         for i in range(1, len(label_weights_values)):
-            self.assertAlmostEqual(
-                label_weights_values[i], label_weights_values[i - 1]
-            )
+            self.assertAlmostEqual(label_weights_values[i], label_weights_values[i - 1])
 
     def test_building_with_target(self):
         sources = ["a b ade"]  # Tokenized: [CLS] a b a ##d ##e [SEP]
         target = "a ade"  # Tokenized: [CLS] a a ##d ##e [SEP]
-        example, _ = self._builder.build_bert_example(sources, target)
+        example, _ = self._builder.build_transformer_example(sources, target)
         # input_ids should contain the IDs for the following tokens:
         #   [CLS] a b a ##d ##e [SEP] [PAD]
         self.assertEqual(example.input_ids, [0, 3, 4, 3, 6, 7, 1])
@@ -95,7 +91,7 @@ class BertExampleTest(unittest.TestCase):
 
     def test_building_no_target_truncated(self):
         sources = ["ade bed cde"]
-        example, _ = self._builder.build_bert_example(sources)
+        example, _ = self._builder.build_transformer_example(sources)
         # input_ids should contain the IDs for the following tokens:
         #   [CLS] a ##d ##e b ##e ##d [SEP]
         # where the last token 'cde' has been truncated.
@@ -107,7 +103,7 @@ class BertExampleTest(unittest.TestCase):
         sources = ["a b ade"]  # Tokenized: [CLS] a b a ##d ##e [SEP]
         target = "a ade"  # Tokenized: [CLS] a a ##d ##e [SEP]
 
-        example, _ = self._builder_mask.build_bert_example(sources, target)
+        example, _ = self._builder_mask.build_transformer_example(sources, target)
         # input_ids should contain the IDs for the following tokens:
         #   [CLS] a b a ##d ##e [SEP]
         self.assertEqual(example.input_ids, [0, 3, 4, 3, 6, 7, 1])
@@ -126,7 +122,7 @@ class BertExampleTest(unittest.TestCase):
     def test_building_with_insertion(self):
         sources = ["a b"]  # Tokenized: [CLS] a b [SEP]
         target = "a b c"  # Tokenized: [CLS] a b c [SEP]
-        example, insertion_example = self._builder_mask.build_bert_example(
+        example, insertion_example = self._builder_mask.build_transformer_example(
             sources, target
         )
         # input_ids should contain the IDs for the following tokens:
@@ -168,7 +164,7 @@ class BertExampleTest(unittest.TestCase):
         with open(vocab_file, "w") as vocab_writer:
             vocab_writer.write("".join([x + "\n" for x in vocab_tokens]))
 
-        builder = bert_example.BertExampleBuilder(
+        builder = transformer_example.TransformerExampleBuilder(
             vocab_file=vocab_file,
             label_map={"KEEP": 1, "DELETE": 2, "KEEP|1": 3, "KEEP|2:": 4},
             max_seq_length=9,
@@ -180,7 +176,7 @@ class BertExampleTest(unittest.TestCase):
 
         sources = ["a b", "ade"]  # Tokenized: [CLS] a b [SEP] a ##d ##e [SEP]
         target = "a ade"  # Tokenized: [CLS] a a ##d ##e [SEP]
-        example, _ = builder.build_bert_example(sources, target)
+        example, _ = builder.build_transformer_example(sources, target)
         # input_ids should contain the IDs for the following tokens:
         #   [CLS] a b [SEP] a ##d ##e [SEP]
         self.assertEqual(example.input_ids, [0, 3, 4, 1, 3, 6, 7, 1])

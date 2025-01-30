@@ -3,9 +3,7 @@ from copy import deepcopy
 
 import torch
 import torch.nn as nn
-from transformers import BertConfig, BertModel, PreTrainedModel
-
-from utils import are_configurations_equal
+from transformers import AutoModel, PreTrainedModel
 
 
 class TagLoss(nn.Module):
@@ -70,10 +68,10 @@ def get_mask(inputs, to_mask):
 
 
 class MyTagger(PreTrainedModel):
-    """Felix tagger model based on a BERT-style transformer-based encoder.
+    """Felix tagger model based on a transformer-based encoder.
 
     It adds an edit tagger (classification) and optionally a pointer network
-    (self-attention) to a BERT encoder.
+    (self-attention) to a Transformer encoder.
     """
 
     def __init__(
@@ -88,61 +86,56 @@ class MyTagger(PreTrainedModel):
 
         Args:
             network: An encoder network, which should output a sequence of hidden states.
-            config: A config file which in addition to the BertConfig values also includes:
+            config: A config file which in addition to the base config values also includes:
                 num_classes, hidden_dropout_prob, and query_transformer.
             seq_length: Maximum sequence length.
             use_pointing: Whether a pointing network is used.
         """
         super(MyTagger, self).__init__(config)
-        is_base_config = are_configurations_equal(
-            config,
-            BertConfig(),
-        )
 
-        if is_base_config:
-            backbone = BertModel.from_pretrained("bert-base-uncased")
-        else:
-            backbone = BertModel(config=config)
+        backbone = AutoModel.from_config(config)
         self._backbone = backbone
         self._seq_length = seq_length
-        self._bert_config = config
+        self._config = config
         self._use_pointing = config.pointing
         self._pointing_weight = pointing_weight
 
         self._tag_logits_layer = nn.Linear(
-            self._bert_config.hidden_size, self._bert_config.num_classes
+            self._config.hidden_size, self._config.num_classes
         )
         if not self._use_pointing:
             return
 
         # An arbitrary heuristic (sqrt vocab size) for the tag embedding dimension.
-        tag_size = int(math.ceil(math.sqrt(self._bert_config.num_classes)))
+        tag_size = int(math.ceil(math.sqrt(self._config.num_classes)))
 
-        self._tag_embedding_layer = nn.Embedding(
-            self._bert_config.num_classes, tag_size
-        )
+        self._tag_embedding_layer = nn.Embedding(self._config.num_classes, tag_size)
 
         self._position_embedding_layer = PositionEmbedding(seq_length)
         self._edit_tagged_sequence_output_layer = nn.Linear(
-            self._bert_config.hidden_size + 2 * tag_size,
-            self._bert_config.hidden_size,
+            self._config.hidden_size + 2 * tag_size,
+            self._config.hidden_size,
         )
 
-        if self._bert_config.query_transformer:
+        if self._config.query_transformer:
             self._transformer_query_layer = nn.TransformerEncoderLayer(
-                d_model=self._bert_config.hidden_size,
-                nhead=self._bert_config.num_attention_heads,
-                dim_feedforward=self._bert_config.intermediate_size,
-                dropout=self._bert_config.hidden_dropout_prob,
+                d_model=self._config.hidden_size,
+                nhead=self._config.num_attention_heads,
+                dim_feedforward=self._config.intermediate_size,
+                dropout=getattr(
+                    self._config,
+                    "hidden_dropout_prob",
+                    getattr(self._config, "attention_dropout", 0.1),
+                ),  # Fallback to attention_dropout or default 0.1
                 activation="gelu",
                 batch_first=True,
             )
 
         self._query_embeddings_layer = nn.Linear(
-            self._bert_config.hidden_size, self._bert_config.query_size
+            self._config.hidden_size, self._config.query_size
         )
         self._key_embeddings_layer = nn.Linear(
-            self._bert_config.hidden_size, self._bert_config.query_size
+            self._config.hidden_size, self._config.query_size
         )
 
     def _attention_scores(self, query, key, mask=None):
@@ -175,7 +168,7 @@ class MyTagger(PreTrainedModel):
         self,
         input_ids,
         attention_mask,
-        token_type_ids,
+        token_type_ids=None,
         edit_tags=None,
         pointers=None,
         labels_mask=None,
@@ -196,12 +189,13 @@ class MyTagger(PreTrainedModel):
         Returns:
             The logits of the edit tags and optionally the logits of the pointer network.
         """
-        bert_output = self._backbone(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-        )[0]
-        tag_logits = self._tag_logits_layer(bert_output)
+        backbone_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+
+        if token_type_ids is not None:
+            backbone_inputs["token_type_ids"] = token_type_ids
+
+        backbone_output = self._backbone(**backbone_inputs)[0]
+        tag_logits = self._tag_logits_layer(backbone_output)
 
         if not self._use_pointing:
             return [tag_logits]
@@ -213,11 +207,11 @@ class MyTagger(PreTrainedModel):
         position_embedding = self._position_embedding_layer(tag_embedding)
 
         edit_tagged_sequence_output = self._edit_tagged_sequence_output_layer(
-            torch.cat([bert_output, tag_embedding, position_embedding], dim=-1)
+            torch.cat([backbone_output, tag_embedding, position_embedding], dim=-1)
         )
 
         intermediate_query_embeddings = edit_tagged_sequence_output
-        if self._bert_config.query_transformer:
+        if self._config.query_transformer:
             query_mask = get_mask(intermediate_query_embeddings, attention_mask)
             intermediate_query_embeddings = self._transformer_query_layer(
                 intermediate_query_embeddings,

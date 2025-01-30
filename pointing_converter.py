@@ -6,7 +6,7 @@ import pointing
 class PointingConverter(object):
     """Converter from training target texts into pointing format."""
 
-    def __init__(self, phrase_vocabulary, do_lower_case=True):
+    def __init__(self, phrase_vocabulary, do_lower_case=True, with_graph=False):
         """Initializes an instance of PointingConverter.
 
         Args:
@@ -14,6 +14,7 @@ class PointingConverter(object):
             we assume an unlimited vocabulary.
           do_lower_case: Should the phrase vocabulary be lower cased.
         """
+        self._with_graph = with_graph
         self._do_lower_case = do_lower_case
         self._phrase_vocabulary = set()
         for phrase in phrase_vocabulary:
@@ -75,9 +76,7 @@ class PointingConverter(object):
             ):
                 # Maximum length expected of source_tokens_indexes[target_token] is 512,
                 # median length is 1.
-                src_indx = find_nearest(
-                    source_tokens_indexes[target_token], last
-                )
+                src_indx = find_nearest(source_tokens_indexes[target_token], last)
                 # We can only point to a token once.
                 source_tokens_indexes[target_token].remove(src_indx)
                 target_points[last] = pointing.Point(src_indx, token_buffer)

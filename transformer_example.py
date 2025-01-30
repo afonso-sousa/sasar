@@ -1,12 +1,10 @@
 import collections
 
-from transformers import BertTokenizer
-
-import constants
+from transformers import AutoTokenizer
 
 
-class BertExample:
-    """Class for training and inference examples for BERT.
+class TransformerExample:
+    """Class for training and inference examples for Transformers.
 
     Attributes:
         features: A dictionary of features with tensor lists as values.
@@ -23,12 +21,12 @@ class BertExample:
         point_indexes,
         labels_mask,
     ):
-        """Constructor for BERTExample.
+        """Constructor for TransformerExample.
 
         Args:
             input_ids: Tensor of ids of source tokens.
             input_mask: Tensor of 1s and 0s. 0 indicates a PAD token.
-            token_type_ids: Tensor of segment ids for BERT.
+            token_type_ids: Tensor of segment ids.
             labels: Tensor of added phrases. If tensor is empty, we assume we are at test time.
             point_indexes: Tensor of target points.
             labels_mask: Tensor of 1s and 0s. 0 indicates a PAD token.
@@ -61,11 +59,11 @@ class BertExample:
         return obj_dict
 
     def __repr__(self):
-        return f"BertExample({self.to_dict()})"
+        return f"TransformerExample({self.to_dict()})"
 
 
-class BertExampleBuilder:
-    """Builder class for BertExample objects.
+class TransformerExampleBuilder:
+    """Builder class for TransformerExample objects.
 
     Attributes:
       label_map: Mapping from tags to tag IDs.
@@ -83,7 +81,7 @@ class BertExampleBuilder:
         converter_insertion=None,
         special_glue_string_for_sources=None,
     ):
-        """Initializes an instance of BertExampleBuilder.
+        """Initializes an instance of TransformerExampleBuilder.
 
         Args:
           label_map: Mapping from tags to tag IDs.
@@ -92,7 +90,6 @@ class BertExampleBuilder:
             uncased models and False for cased models.
           converter: Converter from text targets to points.
           use_open_vocab: Should MASK be inserted or phrases. Currently only True is supported.
-          vocab_file: Path to BERT vocabulary file.
           converter_insertion: Converter for building an insertion example based on
             the tagger output. Optional.
           special_glue_string_for_sources: If there are multiple sources, this
@@ -107,7 +104,7 @@ class BertExampleBuilder:
                 )
             inverse_label_map[label_id] = label
         self._inverse_label_map = inverse_label_map
-        self.tokenizer = BertTokenizer.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name,
         )
         self._max_seq_length = max_seq_length
@@ -125,22 +122,18 @@ class BertExampleBuilder:
         else:
             self._special_glue_string_for_sources = " "
 
-    def build_bert_example(self, sources, target=None, is_test_time=False):
-        """Constructs a BERT tagging and insertion examples.
+    def build_transformer_example(self, sources, target=None, is_test_time=False):
+        """Constructs a Transformer tagging and insertion examples.
 
         Args:
           sources: List of source texts.
-          target: Target text or None when building an example during inference. If
-            the target is None then we don't calculate gold labels or tags, this is equivalent to setting is_test_time to True.
-          is_test_time: Controls whether the dataset is to be used at test time.
-            Unlike setting target = None to indicate test time, this flags allows for saving the target in the tfrecord.
+          target: Target text or None when building an example during inference. If the target is None then we don't calculate gold labels or tags, this is equivalent to setting is_test_time to True.
+          is_test_time: Controls whether the dataset is to be used at test time. Unlike setting target = None to indicate test time, this flags allows for saving the target in the tfrecord.
 
         Returns:
           A tuple with:
-          1. BertExample for the tagging model or None if there's a tag not found in
-          self.label_map or conversion from text to tags was infeasible.
-          2. FeedDict for the insertion model or None if the BertExample or the
-          insertion conversion failed.
+          1. TransformerExample for the tagging model or None if there's a tag not found in self.label_map or conversion from text to tags was infeasible.
+          2. FeedDict for the insertion model or None if the TransformerExample or the insertion conversion failed.
         """
 
         merged_sources = self._special_glue_string_for_sources.join(sources)
@@ -165,7 +158,7 @@ class BertExampleBuilder:
         token_type_ids = tokenized_input.token_type_ids
 
         if not target or is_test_time:
-            example = BertExample(
+            example = TransformerExample(
                 input_ids=input_ids,
                 input_mask=input_mask,
                 token_type_ids=token_type_ids,
@@ -227,7 +220,7 @@ class BertExampleBuilder:
 
         # Weight the labels inversely proportional to their frequency.
         labels_mask = [label_weight[label] for label in labels]
-        example = BertExample(
+        example = TransformerExample(
             input_ids=input_ids,
             input_mask=input_mask,
             token_type_ids=token_type_ids,

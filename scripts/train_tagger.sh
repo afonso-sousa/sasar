@@ -1,4 +1,4 @@
-model_name=bert-base-uncased
+model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
 
 CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --output_dir output/$model_name/tagger \
@@ -17,4 +17,4 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --pointing_weight 1 \
     --use_weighted_labels \
     --use_open_vocab \
-    --patience 5
+    --patience 10

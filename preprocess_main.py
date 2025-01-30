@@ -37,6 +37,7 @@ def main(args):
         args.max_seq_length,
         args.tokenizer_name,
         args.special_glue_string_for_joining_sources,
+        args.with_graph,
     )
 
     num_converted = 0
@@ -74,7 +75,9 @@ def main(args):
                 if i % 10000 == 0:
                     print(f"{i} examples processed, {num_converted} converted.")
 
-                example, insertion_example = builder.build_bert_example(sources, target)
+                example, insertion_example = builder.build_transformer_example(
+                    sources, target
+                )
                 if example is not None:
                     json_str = json.dumps(example.to_dict())
                     writer.write(json_str.encode("utf-8"))
@@ -163,6 +166,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--insert_after_token", type=str, help="Token after which to insert."
+    )
+    parser.add_argument(
+        "--with_graph",
+        action="store_true",
+        help="Whether to use graph information or not.",
     )
 
     args = parser.parse_args()

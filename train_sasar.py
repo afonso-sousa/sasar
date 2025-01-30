@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 class TextEditingDataset(Dataset):
     """Text Editing dataset."""
 
-    def __init__(self, data_file=None, is_insertion=False):
+    def __init__(self, data_file=None, is_insertion=False, use_token_type_ids=True):
         if data_file is None:
             raise ValueError("Please provide a data file.")
 
@@ -44,6 +44,7 @@ class TextEditingDataset(Dataset):
 
         self.data = data_list
         self.is_insertion = is_insertion
+        self.use_token_type_ids = use_token_type_ids
 
     def __len__(self):
         return len(self.data)
@@ -51,23 +52,23 @@ class TextEditingDataset(Dataset):
     def __getitem__(self, idx):
         data = self.data[idx]
 
+        item = {
+            "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
+            "attention_mask": torch.tensor(data["input_mask"], dtype=torch.long),
+        }
+
         if self.is_insertion:
-            return {
-                "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
-                "attention_mask": torch.tensor(data["input_mask"], dtype=torch.long),
-                "labels": torch.tensor(data["masked_lm_ids"], dtype=torch.long),
-            }
+            item["labels"] = torch.tensor(data["masked_lm_ids"], dtype=torch.long)
         else:
-            return {
-                "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
-                "attention_mask": torch.tensor(data["input_mask"], dtype=torch.long),
-                "token_type_ids": torch.tensor(
+            if self.use_token_type_ids:
+                item["token_type_ids"] = torch.tensor(
                     data["token_type_ids"], dtype=torch.long
-                ),
-                "edit_tags": torch.tensor(data["labels"], dtype=torch.long),
-                "pointers": torch.tensor(data["point_indexes"], dtype=torch.long),
-                "labels_mask": torch.tensor(data["labels_mask"], dtype=torch.float32),
-            }
+                )
+            item["edit_tags"] = torch.tensor(data["labels"], dtype=torch.long)
+            item["pointers"] = torch.tensor(data["point_indexes"], dtype=torch.long)
+            item["labels_mask"] = torch.tensor(data["labels_mask"], dtype=torch.float32)
+
+        return item
 
 
 def parse_args():
@@ -201,6 +202,11 @@ def parse_args():
         action="store_true",
         help="Whether different labels were given different weights. Primarly used to increase the importance of rare tags. Only True is currently supported.",
     )
+    parser.add_argument(
+        "--use_token_type_ids",
+        action="store_true",
+        help="Whether to use token_type_ids in the dataset",
+    )
 
     args = parser.parse_args()
 
@@ -265,11 +271,15 @@ def main():
         # Load the data from the file
         if args.train_file is not None:
             train_dataset = TextEditingDataset(
-                args.train_file, is_insertion=args.train_insertion
+                args.train_file,
+                is_insertion=args.train_insertion,
+                use_token_type_ids=args.use_token_type_ids,
             )
         if args.validation_file is not None:
             validation_dataset = TextEditingDataset(
-                args.validation_file, is_insertion=args.train_insertion
+                args.validation_file,
+                is_insertion=args.train_insertion,
+                use_token_type_ids=args.use_token_type_ids,
             )
 
         label_pad_token_id = -100

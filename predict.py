@@ -1,12 +1,7 @@
 import os
 
 import torch
-from transformers import (
-    AutoConfig,
-    BertForMaskedLM,
-    DataCollatorForSeq2Seq,
-    default_data_collator,
-)
+from transformers import AutoConfig, AutoModelForMaskedLM, DataCollatorForSeq2Seq
 
 import beam_search
 import constants
@@ -101,7 +96,7 @@ class FelixPredictor:
         if is_insertion:
             config_path = os.path.join(self._model_insertion_filepath, "config.json")
             config = AutoConfig.from_pretrained(config_path)
-            self._insertion_model = BertForMaskedLM.from_pretrained(
+            self._insertion_model = AutoModelForMaskedLM.from_pretrained(
                 self._model_insertion_filepath,
                 config=config,
             )
@@ -159,7 +154,7 @@ class FelixPredictor:
                     }
                 )
             else:
-                example, _ = self._builder.build_bert_example(
+                example, _ = self._builder.build_transformer_example(
                     [source_sentence], target=None, is_test_time=True
                 )
 
