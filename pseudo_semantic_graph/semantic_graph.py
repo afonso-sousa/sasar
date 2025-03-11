@@ -5,11 +5,9 @@ import spacy
 from nltk.corpus import stopwords
 from spacy.tokens import Doc, Span
 
-from annotations import *
-
+from .annotations import *
 from .dependency_tree import TreeNode
 from .linearize import LinearizationMixin
-from .transformations import TransformationsMixin
 
 
 class Node:
@@ -25,7 +23,7 @@ class Node:
         return f"Node({self.word}, {self.index}, {self.ud_pos}, {self.onto_tag})"
 
 
-class SemanticGraph(LinearizationMixin, TransformationsMixin):
+class SemanticGraph(LinearizationMixin):
     nlp = None
 
     def __init__(

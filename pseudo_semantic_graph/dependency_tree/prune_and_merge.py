@@ -1,6 +1,6 @@
 import itertools
 
-from annotations import *
+from ..annotations import *
 
 
 class PruneAndMergeMixin:
@@ -33,10 +33,7 @@ class PruneAndMergeMixin:
             for attribute in self.attributes
             if (not attribute.children)  # is leaf node
             and (
-                (
-                    attribute.dep in MODIFIERS_PLUS
-                    or attribute.onto_tag in MODIFIER_POS
-                )
+                (attribute.dep in MODIFIERS_PLUS or attribute.onto_tag in MODIFIER_POS)
                 and not attribute.onto_tag == "WRB"
             )  # has the syntactic type we want to merge
             and not any(word.lower() in MONTHS for word in attribute.word)
@@ -55,16 +52,11 @@ class PruneAndMergeMixin:
         )
 
         word_list, index_list = zip(
-            *[
-                (candidate.word, candidate.index)
-                for candidate in candidates_to_join
-            ]
+            *[(candidate.word, candidate.index) for candidate in candidates_to_join]
             + [(self.word, self.index)]
         )
 
-        sorted_pairs = sorted(
-            zip(word_list, index_list), key=lambda pair: min(pair[1])
-        )
+        sorted_pairs = sorted(zip(word_list, index_list), key=lambda pair: min(pair[1]))
 
         sorted_words, sorted_indices = list(zip(*sorted_pairs))
 

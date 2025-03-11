@@ -3,8 +3,7 @@ from typing import Dict, List, Tuple, Union
 
 from spacy.tokens import Span, Token
 
-from annotations import *
-
+from ..annotations import *
 from .prune_and_merge import PruneAndMergeMixin
 from .rearrange import RearrangeMixin
 
@@ -100,9 +99,7 @@ class TreeNode(PruneAndMergeMixin, RearrangeMixin):
             def is_verb(child: Token) -> bool:
                 return child.pos_ in ["VERB", "AUX"]
 
-            head_index_map = {
-                token.i: idx for idx, token in enumerate(sentence)
-            }
+            head_index_map = {token.i: idx for idx, token in enumerate(sentence)}
             node = cls(
                 word=[token.text],
                 index=[head_index_map[token.i]],

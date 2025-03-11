@@ -1,9 +1,9 @@
 model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
 
 CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
-    --output_dir output/$model_name/inserter \
-    --train_file input/paws/train.json.ins \
-    --validation_file input/paws/validation.json.ins \
+    --output_dir output/$model_name/inserter_with_graph \
+    --train_file input/paws/train_with_graph.json.ins \
+    --validation_file input/paws/validation_with_graph.json.ins \
     --model_name_or_path $model_name \
     --label_map_file input/label_map.json \
     --max_seq_length 128 \

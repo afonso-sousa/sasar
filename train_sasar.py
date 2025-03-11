@@ -154,11 +154,6 @@ def parse_args():
         help="Where to store the final model.",
     )
     parser.add_argument(
-        "--with_graph",
-        action="store_true",
-        help="Whether to use pseudo semantic graphs for the tagger model",
-    )
-    parser.add_argument(
         "--return_entity_level_metrics",
         action="store_true",
         help="Indication whether entity level metrics are to be returner.",
@@ -212,9 +207,6 @@ def parse_args():
 
     if not args.use_open_vocab:
         raise ValueError("Currently only `use_open_vocab=True` is supported")
-
-    if args.with_graph and args.train_insertion:
-        raise ValueError("Only tagging models are supported with graphs")
 
     return args
 

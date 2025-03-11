@@ -1,4 +1,4 @@
-from glossary import UPOS
+from .glossary import UPOS
 
 
 class LinearizationMixin:

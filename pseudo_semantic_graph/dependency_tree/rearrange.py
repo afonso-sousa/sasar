@@ -1,4 +1,4 @@
-from annotations import *
+from ..annotations import *
 
 
 class RearrangeMixin:
@@ -62,10 +62,7 @@ class RearrangeMixin:
             if not noun.verbs:
                 current_nouns = []
                 for grandchild in noun.attributes:
-                    if (
-                        grandchild.dep == "conj"
-                        and grandchild.onto_tag in NOUN_POS
-                    ):
+                    if grandchild.dep == "conj" and grandchild.onto_tag in NOUN_POS:
                         grandchild.dep = noun.dep
                         nouns_to_rearrange.append(grandchild)
                     else:

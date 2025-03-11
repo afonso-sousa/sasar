@@ -1,6 +1,6 @@
 dataset="paws"
-split="train"
-output_file="input/$dataset/${split}.json"
+split="validation"
+output_file="input/$dataset/${split}_with_graph.json"
 label_map_file="input/label_map.json"
 tokenizer_name="bert-base-uncased"
 

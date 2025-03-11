@@ -178,8 +178,7 @@ class InsertionConverter(object):
 
         Args:
           source_tokens: List of source tokens.
-          labels: List of label IDs, which correspond to a list of labels (KEEP,
-            DELETE, MASK|1, MASK|2...).
+          labels: List of label IDs, which correspond to a list of labels (KEEP, DELETE, MASK|1, MASK|2...).
           source_indexes: List of next tokens (see pointing converter for more
             details) (ordered by source tokens).
           target_tokens: List of target tokens.
