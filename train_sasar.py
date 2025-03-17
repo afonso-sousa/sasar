@@ -92,11 +92,6 @@ def parse_args():
         help="The model checkpoint for weights initialization.",
     )
     parser.add_argument(
-        "--use_open_vocab",
-        action="store_true",
-        help="Currently only use_open_vocab=True is supported",
-    )
-    parser.add_argument(
         "--train_insertion",
         action="store_true",
         help="Whether to train an inserter (True) or a tagger (False)",
@@ -205,20 +200,14 @@ def parse_args():
 
     args = parser.parse_args()
 
-    if not args.use_open_vocab:
-        raise ValueError("Currently only `use_open_vocab=True` is supported")
-
     return args
 
 
 def main():
-    # Parse the arguments
     args = parse_args()
 
-    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
     accelerator = Accelerator()
 
-    # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -245,10 +234,11 @@ def main():
     config.query_size = 64
     config.query_transformer = True
     if args.train_insertion:
-        model = my_models.get_insertion_model(config)
+        model = my_models.get_insertion_model(config, args.model_name_or_path)
     else:
         model = my_models.get_tagging_model(
             config,
+            args.model_name_or_path,
             args.max_seq_length,
             pointing_weight=args.pointing_weight,
         )

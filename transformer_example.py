@@ -122,7 +122,9 @@ class TransformerExampleBuilder:
         else:
             self._special_glue_string_for_sources = " "
 
-    def build_transformer_example(self, sources, target=None, is_test_time=False):
+    def build_transformer_example(
+        self, sources, target=None, amr_source=None, amr_target=None, is_test_time=False
+    ):
         """Constructs a Transformer tagging and insertion examples.
 
         Args:
@@ -180,7 +182,10 @@ class TransformerExampleBuilder:
         )
         output_tokens = self.tokenizer.convert_ids_to_tokens(tokenized_output.input_ids)
         points = self._converter.compute_points(
-            " ".join(input_tokens).split(), " ".join(output_tokens)
+            " ".join(input_tokens).split(),
+            " ".join(output_tokens),
+            amr_source,
+            amr_target,
         )
 
         if not points:

@@ -1,4 +1,6 @@
 import collections
+import json
+import os
 import string
 
 import amrlib
@@ -10,10 +12,27 @@ import amr_utils
 import pointing
 
 
+def detokenize(tokens):
+    detok = []
+    for token in tokens:
+        if token.startswith("##"):  ## Only for BERT tokenization
+            detok[-1] += token[2:]  # Merge subword with previous token
+        elif token in string.punctuation or token.startswith("'"):
+            detok.append(token)  # Attach punctuation without space
+        else:
+            detok.append(" " + token)  # Add space before normal words
+    return "".join(detok).strip()
+
+
 class PointingConverter(object):
     """Converter from training target texts into pointing format."""
 
-    def __init__(self, phrase_vocabulary, do_lower_case=True, with_graph=False):
+    def __init__(
+        self,
+        phrase_vocabulary,
+        do_lower_case=True,
+        with_graph=False,
+    ):
         """Initializes an instance of PointingConverter.
 
         Args:
@@ -34,16 +53,17 @@ class PointingConverter(object):
                 self._phrase_vocabulary.add(phrase)
 
         if self._with_graph:
+            from nltk.stem import WordNetLemmatizer
+
+            self.lemmatizer = WordNetLemmatizer()
+
             self.stog = amrlib.load_stog_model(
                 model_dir="amr_parser",
                 device="cuda:0",
                 batch_size=2,
             )
-            from nltk.stem import WordNetLemmatizer
 
-            self.lemmatizer = WordNetLemmatizer()
-
-    def compute_points(self, source_tokens, target):
+    def compute_points(self, source_tokens, target, amr_source=None, amr_target=None):
         """Computes points needed for converting the source into the target.
 
         Args:
@@ -59,7 +79,18 @@ class PointingConverter(object):
         target_tokens = target.split()
 
         if self._with_graph:
-            points = self._compute_points_from_AMR(source_tokens, target_tokens)
+            source_text = " ".join(source_tokens[1:-1])
+            if not amr_source or not amr_target:
+                # Generate AMR graphs for source and target texts
+                source_text = detokenize(source_tokens[1:-1])  # Exclude special tokens
+                target_text = detokenize(target_tokens[1:-1])
+                amr_graphs = self.stog.parse_sents([source_text, target_text])
+                amr_source = amr_graphs[0].split("\n", 1)[1]
+                amr_target = amr_graphs[1].split("\n", 1)[1]
+
+            points = self._compute_points_from_AMR(
+                source_tokens, target_tokens, amr_source, amr_target
+            )
         else:
             points = self._compute_points(source_tokens, target_tokens)
         return points
@@ -121,28 +152,12 @@ class PointingConverter(object):
 
         return points
 
-    def _compute_points_from_AMR(self, source_tokens, target_tokens):
-        def detokenize(tokens):
-            detok = []
-            for token in tokens:
-                if token.startswith("##"):  ## Only for BERT tokenization
-                    detok[-1] += token[2:]  # Merge subword with previous token
-                elif token in string.punctuation or token.startswith("'"):
-                    detok.append(token)  # Attach punctuation without space
-                else:
-                    detok.append(" " + token)  # Add space before normal words
-            return "".join(detok).strip()
-
-        # Convert tokenized input into text for AMR parsing
-        source_text = detokenize(source_tokens[1:-1])  # Exclude special tokens
-        target_text = detokenize(target_tokens[1:-1])
-
-        # Generate AMR graphs for source and target texts
-        amr_graphs = self.stog.parse_sents([source_text, target_text])
-
+    def _compute_points_from_AMR(
+        self, source_tokens, target_tokens, amr_source, amr_target
+    ):
         # Extract important concepts and relations
-        source_amr_tokens = self.extract_amr_tokens(amr_graphs[0].split("\n", 1)[1])
-        target_amr_tokens = self.extract_amr_tokens(amr_graphs[1].split("\n", 1)[1])
+        source_amr_tokens = self.extract_amr_tokens(amr_source)
+        target_amr_tokens = self.extract_amr_tokens(amr_target)
 
         # Find shared concepts
         common_concepts = set(source_amr_tokens) & set(target_amr_tokens)

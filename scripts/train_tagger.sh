@@ -16,5 +16,4 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --num_warmup_steps 500 \
     --pointing_weight 1 \
     --use_weighted_labels \
-    --use_open_vocab \
     --patience 10

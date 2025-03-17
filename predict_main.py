@@ -16,7 +16,7 @@ def batch_generator(
     """Produces batches for predictions."""
     source_batch = []
     target_batch = []
-    for source, target in utils.yield_sources_and_targets(
+    for source, target in utils.yield_inputs(
         dataset,
     ):
         source_batch.append(source[0])

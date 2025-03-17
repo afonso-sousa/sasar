@@ -70,6 +70,7 @@ class InsertionConverter(object):
         label_map,
         tokenizer_name="bert-base-uncased",
         fall_back_mode="random",
+        include_deleted_spans=True,
     ):
         """Initializes an instance of InsertionConverter.
 
@@ -82,6 +83,7 @@ class InsertionConverter(object):
                           'force':  Leave the output unchanged (not recommended).
                             Otherwise return None and terminate early (saving
                             computation time).
+          include_deleted_spans: Boolean flag to determine whether to include deleted spans.
         """
 
         self._max_seq_length = max_seq_length
@@ -100,8 +102,14 @@ class InsertionConverter(object):
             self._do_random_mask = False
             self._do_lazy_generation = True
 
+        self.include_deleted_spans = include_deleted_spans
+
     def _create_masked_source(
-        self, source_tokens, labels, source_indexes, target_tokens
+        self,
+        source_tokens,
+        labels,
+        source_indexes,
+        target_tokens,
     ):
         """Realizes source_tokens & adds deleted to source_tokens and target_tokens.
 
@@ -116,9 +124,9 @@ class InsertionConverter(object):
 
         Returns:
           masked_tokens: The source input for the insertion model, including MASK
-            tokens and bracketed deleted tokens.
+            tokens and optionally bracketed deleted tokens.
           target_tokens: The target tokens for the insertion model, where mask
-            tokens are replaced with the actual token, also includes bracketed
+            tokens are replaced with the actual token, also optionally includes bracketed
             deleted tokens.
         """
 
@@ -152,7 +160,7 @@ class InsertionConverter(object):
             )
             for _ in range(number_of_masks):
                 masked_tokens.append(self._tokenizer.mask_token)
-            if deleted_tokens:
+            if deleted_tokens and self.include_deleted_spans:
                 masked_tokens_length = len(masked_tokens)
                 bracketed_deleted_tokens = (
                     [constants.DELETE_SPAN_START]

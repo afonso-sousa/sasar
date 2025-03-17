@@ -30,7 +30,33 @@ def _write_example_count(count, example_path):
     return count_fname
 
 
+def load_amr_cache(amr_cache_file):
+    """Loads the AMR cache from a file.
+
+    Args:
+        amr_cache_file: Path to the AMR cache file.
+
+    Returns:
+        A dictionary where the key is the source sentence and the value is the AMR information.
+    """
+    if amr_cache_file and os.path.exists(amr_cache_file):
+        amr_cache = {}
+        print(f"Loading AMR cache from {amr_cache_file}")
+        with open(amr_cache_file, "r") as f:
+            for line in f:
+                entry = json.loads(line)
+                source = entry["source"]
+                amr_cache[source] = {
+                    "amr_source": entry["amr_source"],
+                    "amr_target": entry["amr_target"],
+                }
+        return amr_cache
+    return None
+
+
 def main(args):
+    amr_cache = load_amr_cache(args.amr_cache_file)
+
     builder = preprocess.initialize_builder(
         args.use_open_vocab,
         args.label_map_file,
@@ -38,6 +64,7 @@ def main(args):
         args.tokenizer_name,
         args.special_glue_string_for_joining_sources,
         args.with_graph,
+        args.include_deleted_spans,
     )
 
     num_converted = 0
@@ -53,9 +80,27 @@ def main(args):
     else:
         dataset = load_dataset(args.dataset, split=args.split)
 
+    if amr_cache:
+
+        def add_amr_info(example):
+            source = example["source"]
+            if source in amr_cache:
+                example["amr_source"] = amr_cache[source]["amr_source"].split("\n", 1)[
+                    1
+                ]
+                example["amr_target"] = amr_cache[source]["amr_target"].split("\n", 1)[
+                    1
+                ]
+            else:
+                example["amr_source"] = ""
+                example["amr_target"] = ""
+            return example
+
+        dataset = dataset.map(add_amr_info)
+
     indexes = None
     if args.max_input_lines:
-        input_len = sum(1 for _ in utils.yield_sources_and_targets(dataset))
+        input_len = sum(1 for _ in utils.yield_inputs(dataset))
         max_len = min(input_len, args.max_input_lines)
         indexes = set(random.sample(range(input_len), max_len))
 
@@ -65,9 +110,8 @@ def main(args):
     insertion_path = args.output_file + _INSERTION_FILENAME_SUFFIX
     with open(args.output_file, "wb") as writer:
         with open(insertion_path, "wb") as writer_insertion:
-            for i, (sources, target) in enumerate(
-                utils.yield_sources_and_targets(dataset)
-            ):
+            for i, inputs in enumerate(utils.yield_inputs(dataset)):
+                (sources, target, amr_source, amr_target) = inputs
                 if indexes and i not in indexes:
                     continue
                 if target is None or not target.strip():
@@ -76,7 +120,7 @@ def main(args):
                     print(f"{i} examples processed, {num_converted} converted.")
 
                 example, insertion_example = builder.build_transformer_example(
-                    sources, target
+                    sources, target, amr_source, amr_target
                 )
                 if example is not None:
                     json_str = json.dumps(example.to_dict())
@@ -171,6 +215,17 @@ if __name__ == "__main__":
         "--with_graph",
         action="store_true",
         help="Whether to use graph information or not.",
+    )
+    parser.add_argument(
+        "--amr_cache_file",
+        type=str,
+        default=None,
+        help="The file path to the AMR cache file.",
+    )
+    parser.add_argument(
+        "--include_deleted_spans",
+        action="store_true",
+        help="Whether to include deleted spans in processing.",
     )
 
     args = parser.parse_args()

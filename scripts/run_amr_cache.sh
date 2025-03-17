@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DATASET="paws"
-SPLIT="train"
+SPLIT="validation"
 OUTPUT_FILE="${DATASET}_AMR_${SPLIT}.jsonl"
 BATCH_SIZE=64
 

@@ -74,9 +74,7 @@ def build_feed_dict(
     return feed_dict
 
 
-def yield_sources_and_targets(
-    dataset_or_name, split="train", source_key=None, target_key=None
-):
+def yield_inputs(dataset_or_name, split="train", source_key=None, target_key=None):
     """Produces an iterator over pairs (source list, targets) parsed from a file.
 
     Args:
@@ -106,12 +104,14 @@ def yield_sources_and_targets(
         )
 
     for item in dataset:
-        source_texts = item[source_key] if source_key else item["source"]
-        target_text = item[target_key] if target_key else item["target"]
+        source_texts = item.get(source_key, item.get("source"))
+        target_text = item.get(target_key, item.get("target"))
+        amr_source = item.get("amr_source")  # Optional AMR source
+        amr_target = item.get("amr_target")
         if source_texts is not None and target_text is not None:
             if isinstance(source_texts, str):
                 source_texts = [source_texts]
-            yield source_texts, target_text
+            yield source_texts, target_text, amr_source, amr_target
 
 
 def read_label_map(path, use_str_keys=False):

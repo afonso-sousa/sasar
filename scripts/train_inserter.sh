@@ -15,6 +15,5 @@ CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
     --lr_scheduler_type linear \
     --num_warmup_steps 500 \
     --pointing_weight 1 \
-    --use_open_vocab \
     --train_insertion \
     --patience 10

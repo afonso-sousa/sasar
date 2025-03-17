@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_mask",
         type=int,
-        default=10,
+        default=16,
         help="The maximum number of MASKs the model can create per input token when `use_open_vocab == True`.",
     )
     parser.add_argument(

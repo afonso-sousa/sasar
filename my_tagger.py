@@ -77,6 +77,7 @@ class MyTagger(PreTrainedModel):
     def __init__(
         self,
         config,
+        model_name_or_path,
         seq_length=128,
         pointing_weight=1.0,
     ):
@@ -93,8 +94,7 @@ class MyTagger(PreTrainedModel):
         """
         super(MyTagger, self).__init__(config)
 
-        backbone = AutoModel.from_config(config)
-        self._backbone = backbone
+        self._backbone = AutoModel.from_pretrained(model_name_or_path, config=config)
         self._seq_length = seq_length
         self._config = config
         self._use_pointing = config.pointing
@@ -240,29 +240,45 @@ class MyTagger(PreTrainedModel):
             return tag_logits, pointing_logits
 
 
+# class PositionEmbedding(nn.Module):
+#     def __init__(self, max_length, seq_axis=1):
+#         super(PositionEmbedding, self).__init__()
+#         if max_length is None:
+#             raise ValueError("`max_length` must be an Integer, not `None`.")
+#         self.max_length = max_length
+#         self.seq_axis = seq_axis
+
+#     def forward(self, inputs):
+#         input_shape = inputs.size()
+#         actual_seq_len = input_shape[self.seq_axis]
+#         width = input_shape[-1]
+
+#         device = inputs.device
+
+#         position_embeddings = nn.Parameter(torch.zeros(self.max_length, width))
+#         nn.init.xavier_uniform_(position_embeddings)  # Use Xavier initialization
+
+#         position_embeddings = position_embeddings.to(device)
+
+#         position_embeddings = position_embeddings[:actual_seq_len, :]
+#         new_shape = [1] * len(input_shape)
+#         new_shape[self.seq_axis] = actual_seq_len
+#         new_shape[-1] = position_embeddings.size(-1)
+#         position_embeddings = position_embeddings.view(new_shape)
+#         return position_embeddings.expand(input_shape)
+
+
 class PositionEmbedding(nn.Module):
-    def __init__(self, max_length, seq_axis=1):
+    def __init__(self, max_length):
         super(PositionEmbedding, self).__init__()
-        if max_length is None:
-            raise ValueError("`max_length` must be an Integer, not `None`.")
         self.max_length = max_length
-        self.seq_axis = seq_axis
+        self.position_embeddings = nn.Parameter(torch.zeros(max_length, max_length))
+        nn.init.xavier_uniform_(self.position_embeddings)
 
     def forward(self, inputs):
-        input_shape = inputs.size()
-        actual_seq_len = input_shape[self.seq_axis]
-        width = input_shape[-1]
-
-        device = inputs.device
-
-        position_embeddings = nn.Parameter(torch.zeros(self.max_length, width))
-        nn.init.xavier_uniform_(position_embeddings)  # Use Xavier initialization
-
-        position_embeddings = position_embeddings.to(device)
-
-        position_embeddings = position_embeddings[:actual_seq_len, :]
-        new_shape = [1] * len(input_shape)
-        new_shape[self.seq_axis] = actual_seq_len
-        new_shape[-1] = position_embeddings.size(-1)
-        position_embeddings = position_embeddings.view(new_shape)
-        return position_embeddings.expand(input_shape)
+        seq_length = inputs.size(1)
+        return (
+            self.position_embeddings[:seq_length, :]
+            .unsqueeze(0)
+            .expand(inputs.size(0), -1, -1)
+        )

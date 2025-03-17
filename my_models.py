@@ -5,14 +5,14 @@ from transformers import AutoModelForMaskedLM
 import my_tagger
 
 
-def get_insertion_model(config):
-    model = AutoModelForMaskedLM.from_config(config)
-
+def get_insertion_model(config, model_name_or_path):
+    model = AutoModelForMaskedLM.from_pretrained(model_name_or_path, config=config)
     return model
 
 
 def get_tagging_model(
     config,
+    model_name_or_path,
     seq_length,
     pointing_weight=1.0,
 ):
@@ -32,6 +32,7 @@ def get_tagging_model(
 
     model = my_tagger.MyTagger(
         config=config,
+        model_name_or_path=model_name_or_path,
         seq_length=seq_length,
         pointing_weight=pointing_weight,
     )

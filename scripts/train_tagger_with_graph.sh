@@ -1,9 +1,17 @@
 model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
 
+include_deleted_spans=false
+
+if [ "$include_deleted_spans" = true ]; then
+  del_span_suffix="include_del_spans"
+else
+  del_span_suffix="no_del_spans"
+fi
+
 CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
-    --output_dir output/$model_name/tagger_with_graph \
-    --train_file input/paws/train_with_graph.json \
-    --validation_file input/paws/validation_with_graph.json \
+    --output_dir output/$model_name/tagger_with_graph_${del_span_suffix} \
+    --train_file input/paws/train_with_graph_${del_span_suffix}.json \
+    --validation_file input/paws/validation_with_graph_${del_span_suffix}.json \
     --model_name_or_path $model_name \
     --label_map_file input/label_map.json \
     --max_seq_length 128 \
@@ -16,5 +24,4 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --num_warmup_steps 500 \
     --pointing_weight 1 \
     --use_weighted_labels \
-    --use_open_vocab \
     --patience 10
