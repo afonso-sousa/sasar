@@ -111,7 +111,9 @@ class MyTagger(PreTrainedModel):
 
         self._tag_embedding_layer = nn.Embedding(self._config.num_classes, tag_size)
 
-        self._position_embedding_layer = PositionEmbedding(seq_length)
+        self._position_embedding_layer = PositionEmbedding(
+            seq_length, embedding_dim=tag_size
+        )
         self._edit_tagged_sequence_output_layer = nn.Linear(
             self._config.hidden_size + 2 * tag_size,
             self._config.hidden_size,
@@ -240,45 +242,31 @@ class MyTagger(PreTrainedModel):
             return tag_logits, pointing_logits
 
 
-# class PositionEmbedding(nn.Module):
-#     def __init__(self, max_length, seq_axis=1):
-#         super(PositionEmbedding, self).__init__()
-#         if max_length is None:
-#             raise ValueError("`max_length` must be an Integer, not `None`.")
-#         self.max_length = max_length
-#         self.seq_axis = seq_axis
-
-#     def forward(self, inputs):
-#         input_shape = inputs.size()
-#         actual_seq_len = input_shape[self.seq_axis]
-#         width = input_shape[-1]
-
-#         device = inputs.device
-
-#         position_embeddings = nn.Parameter(torch.zeros(self.max_length, width))
-#         nn.init.xavier_uniform_(position_embeddings)  # Use Xavier initialization
-
-#         position_embeddings = position_embeddings.to(device)
-
-#         position_embeddings = position_embeddings[:actual_seq_len, :]
-#         new_shape = [1] * len(input_shape)
-#         new_shape[self.seq_axis] = actual_seq_len
-#         new_shape[-1] = position_embeddings.size(-1)
-#         position_embeddings = position_embeddings.view(new_shape)
-#         return position_embeddings.expand(input_shape)
-
-
 class PositionEmbedding(nn.Module):
-    def __init__(self, max_length):
+    def __init__(self, max_length, embedding_dim, seq_axis=1):
         super(PositionEmbedding, self).__init__()
+        if max_length is None:
+            raise ValueError("`max_length` must be an Integer, not `None`.")
+
         self.max_length = max_length
-        self.position_embeddings = nn.Parameter(torch.zeros(max_length, max_length))
+        self.embedding_dim = embedding_dim
+        self.seq_axis = seq_axis
+
+        # Define position embeddings as a learnable parameter
+        self.position_embeddings = nn.Parameter(
+            torch.zeros(1, max_length, embedding_dim)
+        )
         nn.init.xavier_uniform_(self.position_embeddings)
 
     def forward(self, inputs):
-        seq_length = inputs.size(1)
-        return (
-            self.position_embeddings[:seq_length, :]
-            .unsqueeze(0)
-            .expand(inputs.size(0), -1, -1)
+        input_shape = inputs.size()
+        batch_size = input_shape[0]  # Get batch size dynamically
+        actual_seq_len = input_shape[self.seq_axis]
+
+        # Slice the required embeddings
+        position_embeddings = self.position_embeddings[:, :actual_seq_len, :]
+
+        # Expand to match batch size
+        return position_embeddings.expand(
+            batch_size, actual_seq_len, self.embedding_dim
         )

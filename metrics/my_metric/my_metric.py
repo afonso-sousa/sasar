@@ -60,7 +60,7 @@ class MyMetric(evaluate.Metric):
 
     def _download_and_prepare(self, dl_manager):
         self.bleu = evaluate.load("bleu", experiment_id=self.experiment_id)
-        self.rouge = evaluate.load("rouge", experiment_id=self.experiment_id)
+        # self.rouge = evaluate.load("rouge", experiment_id=self.experiment_id)
         self.sbert = evaluate.load("metrics/sbert", experiment_id=self.experiment_id)
 
     def _compute(self, sources, predictions, references, compute_pair_wise=False):
@@ -80,10 +80,10 @@ class MyMetric(evaluate.Metric):
             )
             ibleu_score = ibleu_formula(bleu_score, self_bleu_score)
 
-            rouge_score = self.rouge.compute(
-                predictions=predictions,
-                references=references,
-            )
+            # rouge_score = self.rouge.compute(
+            #     predictions=predictions,
+            #     references=references,
+            # )
 
             sbert_scores = self.sbert.compute(
                 predictions=predictions, references=references
@@ -93,9 +93,9 @@ class MyMetric(evaluate.Metric):
                 "bleu": bleu_score * 100,
                 "self_bleu": self_bleu_score * 100,
                 "ibleu": ibleu_score * 100,
-                "rouge1": round(rouge_score["rouge1"] * 100, 3),
-                "rouge2": round(rouge_score["rouge2"] * 100, 3),
-                "rougeL": round(rouge_score["rougeL"] * 100, 3),
+                # "rouge1": round(rouge_score["rouge1"] * 100, 3),
+                # "rouge2": round(rouge_score["rouge2"] * 100, 3),
+                # "rougeL": round(rouge_score["rougeL"] * 100, 3),
                 "sbert_mean": statistics.mean(sbert_scores) * 100,
                 "sbert_std": (
                     statistics.stdev(sbert_scores) * 100 if len(sbert_scores) > 1 else 0
@@ -124,12 +124,12 @@ class MyMetric(evaluate.Metric):
             )
             ibleu_scores = list(map(ibleu_formula, zip(bleu_scores, self_bleu_scores)))
 
-            rouge_scores = [
-                self.rouge.compute(predictions=[pred], references=[ref])
-                for pred, ref in tqdm(
-                    zip(predictions, references), total=total_len, desc="rouge"
-                )
-            ]
+            # rouge_scores = [
+            #     self.rouge.compute(predictions=[pred], references=[ref])
+            #     for pred, ref in tqdm(
+            #         zip(predictions, references), total=total_len, desc="rouge"
+            #     )
+            # ]
 
             sbert_scores = self.sbert.compute(
                 predictions=predictions, references=references
@@ -139,8 +139,8 @@ class MyMetric(evaluate.Metric):
                 "bleu": bleu_scores,
                 "self_bleu": self_bleu_scores,
                 "ibleu": ibleu_scores,
-                "rouge1": [entry["rouge1"] for entry in rouge_scores],
-                "rouge2": [entry["rouge2"] for entry in rouge_scores],
-                "rougeL": [entry["rougeL"] for entry in rouge_scores],
+                # "rouge1": [entry["rouge1"] for entry in rouge_scores],
+                # "rouge2": [entry["rouge2"] for entry in rouge_scores],
+                # "rougeL": [entry["rougeL"] for entry in rouge_scores],
                 "sbert": sbert_scores,
             }

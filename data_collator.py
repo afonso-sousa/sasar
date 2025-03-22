@@ -6,6 +6,12 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
 
 
+def to_list(tensor_or_iterable):
+    if isinstance(tensor_or_iterable, torch.Tensor):
+        return tensor_or_iterable.tolist()
+    return list(tensor_or_iterable)
+
+
 @dataclass
 class DataCollatorForTagging:
     """
@@ -75,11 +81,6 @@ class DataCollatorForTagging:
         sequence_length = batch["input_ids"].shape[1]
         padding_side = self.tokenizer.padding_side
 
-        def to_list(tensor_or_iterable):
-            if isinstance(tensor_or_iterable, torch.Tensor):
-                return tensor_or_iterable.tolist()
-            return list(tensor_or_iterable)
-
         for i, label_name in enumerate(label_names):
             if padding_side == "right":
                 batch[label_name] = [
@@ -97,3 +98,94 @@ class DataCollatorForTagging:
             )
 
         return batch
+
+
+@dataclass
+class DataCollatorForJointModel:
+    """
+    Data collator for joint models that dynamically pads inputs and labels.
+    Handles separate inputs for tagging and insertion tasks.
+    """
+
+    tokenizer: PreTrainedTokenizerBase
+    padding: Union[bool, str, PaddingStrategy] = True
+    max_length: Optional[int] = None
+    pad_to_multiple_of: Optional[int] = None
+    label_pad_token_id: int = (
+        0  # Cannot be -100 because edit_tags are used in forward pass
+    )
+    return_tensors: str = "pt"
+
+    def __call__(self, features):
+        # Pad tagging fields
+        tagging_features = [
+            {
+                "input_ids": feature["tagging_input_ids"],
+                "attention_mask": feature["tagging_input_mask"],
+                "token_type_ids": feature["tagging_token_type_ids"],
+            }
+            for feature in features
+        ]
+        tagging_batch = self.tokenizer.pad(
+            tagging_features,
+            padding=self.padding,
+            max_length=self.max_length,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors=self.return_tensors,
+        )
+
+        # Pad insertion fields
+        insertion_features = [
+            {
+                "input_ids": feature["insertion_input_ids"],
+                "attention_mask": feature["insertion_input_mask"],
+                "token_type_ids": feature["insertion_token_type_ids"],
+            }
+            for feature in features
+        ]
+        insertion_batch = self.tokenizer.pad(
+            insertion_features,
+            padding=self.padding,
+            max_length=self.max_length,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors=self.return_tensors,
+        )
+
+        # Rename keys to avoid conflicts
+        tagging_batch = {f"tagging_{k}": v for k, v in tagging_batch.items()}
+        insertion_batch = {f"insertion_{k}": v for k, v in insertion_batch.items()}
+
+        # Pad other fields (edit_tags, pointers, labels_mask, masked_lm_ids)
+        batch = {**tagging_batch, **insertion_batch}
+        for field in ["edit_tags", "pointers", "labels_mask", "masked_lm_ids"]:
+            if field in features[0]:
+                batch[field] = self._pad_labels(
+                    [feature[field] for feature in features],
+                    sequence_length=(
+                        tagging_batch["tagging_input_ids"].shape[1]
+                        if field != "masked_lm_ids"
+                        else insertion_batch["insertion_input_ids"].shape[1]
+                    ),
+                    dtype=torch.float32 if field.endswith("_mask") else torch.long,
+                )
+        return batch
+
+    def _pad_labels(self, labels, sequence_length, dtype=torch.long):
+        """
+        Helper function to pad labels to the specified sequence length.
+        """
+        padding_side = self.tokenizer.padding_side
+        padded_labels = []
+        for label in labels:
+            if padding_side == "right":
+                padded_label = to_list(label) + [self.label_pad_token_id] * (
+                    sequence_length - len(label)
+                )
+            else:
+                padded_label = [self.label_pad_token_id] * (
+                    sequence_length - len(label)
+                ) + to_list(label)
+            padded_labels.append(padded_label)
+        if any([len(a) != len(padded_labels[0]) for a in padded_labels]):
+            raise ValueError("All labels must have the same length after padding")
+        return torch.tensor(padded_labels, dtype=dtype)

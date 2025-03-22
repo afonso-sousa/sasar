@@ -1,7 +1,7 @@
 model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
 
 CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
-    --output_dir output/$model_name/inserter \
+    --output_dir output/$model_name/felix_inserter \
     --train_file input/paws/train.json.ins \
     --validation_file input/paws/validation.json.ins \
     --model_name_or_path $model_name \
@@ -15,5 +15,5 @@ CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
     --lr_scheduler_type linear \
     --num_warmup_steps 500 \
     --pointing_weight 1 \
-    --train_insertion \
+    --model_type inserter \
     --patience 10

@@ -12,6 +12,7 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
+from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
 from transformers import (
@@ -24,7 +25,7 @@ from transformers import (
 
 import my_models
 import utils
-from data_collator import DataCollatorForTagging
+from data_collator import DataCollatorForJointModel, DataCollatorForTagging
 
 logger = get_logger(__name__)
 
@@ -32,7 +33,7 @@ logger = get_logger(__name__)
 class TextEditingDataset(Dataset):
     """Text Editing dataset."""
 
-    def __init__(self, data_file=None, is_insertion=False, use_token_type_ids=True):
+    def __init__(self, data_file=None, model_type="tagger", use_token_type_ids=True):
         if data_file is None:
             raise ValueError("Please provide a data file.")
 
@@ -43,7 +44,7 @@ class TextEditingDataset(Dataset):
                 data_list.append(example_dict)
 
         self.data = data_list
-        self.is_insertion = is_insertion
+        self.model_type = model_type
         self.use_token_type_ids = use_token_type_ids
 
     def __len__(self):
@@ -52,14 +53,17 @@ class TextEditingDataset(Dataset):
     def __getitem__(self, idx):
         data = self.data[idx]
 
-        item = {
-            "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
-            "attention_mask": torch.tensor(data["input_mask"], dtype=torch.long),
-        }
-
-        if self.is_insertion:
+        if self.model_type == "inserter":
+            item = {
+                "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
+                "attention_mask": torch.tensor(data["input_mask"], dtype=torch.long),
+            }
             item["labels"] = torch.tensor(data["masked_lm_ids"], dtype=torch.long)
-        else:
+        elif self.model_type == "tagger":
+            item = {
+                "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
+                "attention_mask": torch.tensor(data["input_mask"], dtype=torch.long),
+            }
             if self.use_token_type_ids:
                 item["token_type_ids"] = torch.tensor(
                     data["token_type_ids"], dtype=torch.long
@@ -67,6 +71,33 @@ class TextEditingDataset(Dataset):
             item["edit_tags"] = torch.tensor(data["labels"], dtype=torch.long)
             item["pointers"] = torch.tensor(data["point_indexes"], dtype=torch.long)
             item["labels_mask"] = torch.tensor(data["labels_mask"], dtype=torch.float32)
+        elif self.model_type == "joint":
+            item = {
+                # Tagging task inputs
+                "tagging_input_ids": torch.tensor(
+                    data["tagging_input_ids"], dtype=torch.long
+                ),
+                "tagging_input_mask": torch.tensor(
+                    data["tagging_input_mask"], dtype=torch.long
+                ),
+                "tagging_token_type_ids": torch.tensor(
+                    data["tagging_token_type_ids"], dtype=torch.long
+                ),
+                "pointers": torch.tensor(data["point_indexes"], dtype=torch.long),
+                "edit_tags": torch.tensor(data["labels"], dtype=torch.long),
+                "labels_mask": torch.tensor(data["labels_mask"], dtype=torch.float32),
+                # Insertion task inputs
+                "insertion_input_ids": torch.tensor(
+                    data["insertion_input_ids"], dtype=torch.long
+                ),
+                "insertion_input_mask": torch.tensor(
+                    data["insertion_input_mask"], dtype=torch.long
+                ),
+                "insertion_token_type_ids": torch.tensor(
+                    data["insertion_token_type_ids"], dtype=torch.long
+                ),
+                "masked_lm_ids": torch.tensor(data["masked_lm_ids"], dtype=torch.long),
+            }
 
         return item
 
@@ -92,9 +123,11 @@ def parse_args():
         help="The model checkpoint for weights initialization.",
     )
     parser.add_argument(
-        "--train_insertion",
-        action="store_true",
-        help="Whether to train an inserter (True) or a tagger (False)",
+        "--model_type",
+        type=str,
+        default="tagger",
+        choices=["tagger", "inserter", "joint"],
+        help="Type of model to train: tagger, inserter, or joint.",
     )
     parser.add_argument("--max_seq_length", type=int, help="Maximum sequence length")
     parser.add_argument(
@@ -233,10 +266,17 @@ def main():
     config.num_classes = len(label_list)
     config.query_size = 64
     config.query_transformer = True
-    if args.train_insertion:
+    if args.model_type == "inserter":
         model = my_models.get_insertion_model(config, args.model_name_or_path)
-    else:
+    elif args.model_type == "tagger":
         model = my_models.get_tagging_model(
+            config,
+            args.model_name_or_path,
+            args.max_seq_length,
+            pointing_weight=args.pointing_weight,
+        )
+    elif args.model_type == "joint":
+        model = my_models.get_joint_model(
             config,
             args.model_name_or_path,
             args.max_seq_length,
@@ -254,27 +294,34 @@ def main():
         if args.train_file is not None:
             train_dataset = TextEditingDataset(
                 args.train_file,
-                is_insertion=args.train_insertion,
+                model_type=args.model_type,
                 use_token_type_ids=args.use_token_type_ids,
             )
         if args.validation_file is not None:
             validation_dataset = TextEditingDataset(
                 args.validation_file,
-                is_insertion=args.train_insertion,
+                model_type=args.model_type,
                 use_token_type_ids=args.use_token_type_ids,
             )
 
         label_pad_token_id = -100
 
-        if args.train_insertion:
+        if args.model_type == "inserter":
             data_collator = DataCollatorForSeq2Seq(
                 tokenizer,
                 model=model,
                 label_pad_token_id=label_pad_token_id,
                 pad_to_multiple_of=8 if accelerator.mixed_precision == "fp16" else None,
             )
-        else:
+        elif args.model_type == "tagger":
             data_collator = DataCollatorForTagging(
+                tokenizer,
+                pad_to_multiple_of=(
+                    8 if accelerator.mixed_precision == "fp16" else None
+                ),
+            )
+        elif args.model_type == "joint":
+            data_collator = DataCollatorForJointModel(
                 tokenizer,
                 pad_to_multiple_of=(
                     8 if accelerator.mixed_precision == "fp16" else None
@@ -497,7 +544,7 @@ def main():
 
         model.eval()
         current_metric = None
-        if args.train_insertion:
+        if args.model_type == "inserter":
             losses = []
             for step, batch in enumerate(eval_dataloader):
                 with torch.no_grad():
@@ -519,7 +566,7 @@ def main():
 
             accelerator.print(f"epoch {epoch}:", {"perplexity": perplexity})
             current_metric = eval_loss
-        else:
+        elif args.model_type == "tagger":
             for step, batch in enumerate(eval_dataloader):
                 with torch.no_grad():
                     outputs = model(**batch)
@@ -540,13 +587,49 @@ def main():
             eval_metric = compute_metrics()
             accelerator.print(f"epoch {epoch}:", eval_metric)
             current_metric = eval_metric["f1"]
+        elif args.model_type == "joint":
+            losses = []
+            for step, batch in enumerate(eval_dataloader):
+                with torch.no_grad():
+                    tag_logits, pointing_logits, mlm_logits = model(**batch)
+                    loss_fct = nn.CrossEntropyLoss()
+                    loss = loss_fct(
+                        mlm_logits.view(-1, mlm_logits.size(-1)),
+                        batch["masked_lm_ids"].view(-1),
+                    )
+                    losses.append(
+                        accelerator.gather_for_metrics(
+                            loss.repeat(args.per_device_eval_batch_size)
+                        )
+                    )
+
+                predicted_tags = torch.argmax(tag_logits, dim=-1)
+                true_tags = batch["edit_tags"]
+                predicted_pointers = torch.argmax(pointing_logits, dim=-1)
+                true_pointers = batch["pointers"]
+
+                preds, refs = get_labels(predicted_tags, true_tags)
+
+                metric.add_batch(
+                    predictions=preds,
+                    references=refs,
+                )  # predictions and preferences are expected to be a nested list of labels, not label_ids
+
+            eval_metric = compute_metrics()
+            losses = torch.cat(losses)
+            try:
+                eval_loss = torch.mean(losses)
+                perplexity = math.exp(eval_loss)
+            except OverflowError:
+                perplexity = float("inf")
+
+            accelerator.print(
+                f"epoch {epoch}:", eval_metric, {"perplexity": perplexity}
+            )
+            current_metric = (eval_metric["f1"] + (1 / perplexity)) / 2
 
         if early_stopping_patience is not None:
-            if (
-                best_metric is None
-                or (args.train_insertion and current_metric < best_metric)
-                or (not args.train_insertion and current_metric > best_metric)
-            ):
+            if best_metric is None or current_metric > best_metric:
                 best_metric = current_metric
                 patience_counter = 0
                 # Save the best model
@@ -583,16 +666,24 @@ def main():
             save_function=accelerator.save,
         )
         with open(os.path.join(args.output_dir, "scores.json"), "w") as f:
-            if args.train_insertion:
+            if args.model_type == "inserter":
                 json.dump({"perplexity": perplexity}, f)
-            else:
+            elif args.model_type == "tagger":
                 all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
-                # Convert all float64 & int64 type numbers to float & int for json serialization
                 for key, value in all_results.items():
                     if isinstance(value, np.float64):
                         all_results[key] = float(value)
                     elif isinstance(value, np.int64):
                         all_results[key] = int(value)
+                json.dump(all_results, f)
+            elif args.model_type == "joint":
+                all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
+                for key, value in all_results.items():
+                    if isinstance(value, np.float64):
+                        all_results[key] = float(value)
+                    elif isinstance(value, np.int64):
+                        all_results[key] = int(value)
+                all_results["perplexity"] = perplexity
                 json.dump(all_results, f)
 
 

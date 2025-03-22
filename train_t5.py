@@ -399,7 +399,7 @@ def main():
             is_main_process=accelerator.is_main_process,
             save_function=accelerator.save,
         )
-        with open(os.path.join(args.output_dir, "scores.json"), "w") as f:
+        with open(os.path.join(args.output_dir, "eval_scores.json"), "w") as f:
             json.dump(
                 {
                     "bleu": bleu_score["score"],
