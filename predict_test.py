@@ -29,9 +29,7 @@ class DummyPredictorTagging:
         self._pred = pred
         self._raw_points = raw_points
 
-    def __call__(
-        self, input_ids, attention_mask, token_type_ids, edit_tags=None
-    ):
+    def __call__(self, input_ids, attention_mask, token_type_ids, edit_tags=None):
         del input_ids, attention_mask, token_type_ids
         if edit_tags:
             del edit_tags
@@ -80,9 +78,7 @@ class TestPredictUtils(unittest.TestCase):
         }
 
         self._label_map = {"PAD": 0, "KEEP": 1, "DELETE": 2, "KEEP|1": 3}
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False
-        ) as label_map_file:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as label_map_file:
             json.dump(self._label_map, label_map_file)
         self._label_map_path = label_map_file.name
 
@@ -108,7 +104,7 @@ class TestPredictUtils(unittest.TestCase):
     def test_predict_end_to_end_batch_random(self):
         """Test the model predictions end-2-end with randomly initialized models."""
         batch_size = 11
-        felix_predictor = predict.FelixPredictor(
+        felix_predictor = predict.Predictor(
             bert_config_insertion=self._bert_test_tagging_config,
             bert_config_tagging=self._bert_test_tagging_config,
             vocab_file=self._vocab_file,
@@ -202,7 +198,7 @@ class TestPredictUtils(unittest.TestCase):
                 gold_with_deletions = test_case["gold_with_deletions"]
                 insertions = test_case["insertions"]
 
-                felix_predictor = predict.FelixPredictor(
+                felix_predictor = predict.Predictor(
                     bert_config_insertion=self._bert_test_tagging_config,
                     bert_config_tagging=self._bert_test_tagging_config,
                     vocab_file=self._vocab_file,
@@ -237,7 +233,7 @@ class TestPredictUtils(unittest.TestCase):
 
     def test_convert_source_sentences_into_tagging_batch(self):
         batch_size = 11
-        felix_predictor = predict.FelixPredictor(
+        felix_predictor = predict.Predictor(
             bert_config_insertion=self._bert_test_tagging_config,
             bert_config_tagging=self._bert_test_tagging_config,
             model_tagging_filepath=None,
@@ -266,7 +262,7 @@ class TestPredictUtils(unittest.TestCase):
 
     def test_convert_source_sentences_into_insertion_batch(self):
         batch_size = 11
-        felix_predictor = predict.FelixPredictor(
+        felix_predictor = predict.Predictor(
             bert_config_insertion=self._bert_test_tagging_config,
             bert_config_tagging=self._bert_test_tagging_config,
             vocab_file=self._vocab_file,
@@ -305,7 +301,7 @@ class TestPredictUtils(unittest.TestCase):
 
     def test_predict_tagging_batch(self):
         batch_size = 11
-        felix_predictor = predict.FelixPredictor(
+        felix_predictor = predict.Predictor(
             bert_config_insertion=self._bert_test_tagging_config,
             bert_config_tagging=self._bert_test_tagging_config,
             model_tagging_filepath=None,
@@ -340,7 +336,7 @@ class TestPredictUtils(unittest.TestCase):
 
     def test_predict_insertion_batch(self):
         batch_size = 11
-        felix_predictor = predict.FelixPredictor(
+        felix_predictor = predict.Predictor(
             bert_config_insertion=self._bert_test_tagging_config,
             bert_config_tagging=self._bert_test_tagging_config,
             vocab_file=self._vocab_file,
@@ -634,7 +630,7 @@ class TestPredictUtils(unittest.TestCase):
                 sources = test_case["sources"]
                 gold_with_deletions = test_case["gold_with_deletions"]
 
-                felix_predictor = predict.FelixPredictor(
+                felix_predictor = predict.Predictor(
                     bert_config_insertion=self._bert_test_tagging_config,
                     bert_config_tagging=self._bert_test_tagging_config,
                     model_tagging_filepath=None,
@@ -650,10 +646,8 @@ class TestPredictUtils(unittest.TestCase):
                     _convert_to_one_hot(pred, len(self._label_map)), raw_points
                 )
                 felix_predictor._tagging_model = tagging_model
-                realized_predictions = (
-                    felix_predictor._predict_and_realize_batch(
-                        sources, is_insertion=False
-                    )
+                realized_predictions = felix_predictor._predict_and_realize_batch(
+                    sources, is_insertion=False
                 )
                 self.assertEqual(realized_predictions[0], gold_with_deletions)
 
@@ -703,7 +697,7 @@ class TestPredictUtils(unittest.TestCase):
                     ]
                 )
 
-                felix_predictor = predict.FelixPredictor(
+                felix_predictor = predict.Predictor(
                     bert_config_insertion=self._bert_test_tagging_config,
                     bert_config_tagging=self._bert_test_tagging_config,
                     vocab_file=self._vocab_file,
@@ -718,10 +712,8 @@ class TestPredictUtils(unittest.TestCase):
 
                 insertion_model = DummyPredictorInsertion(prediction)
                 felix_predictor._insertion_model = insertion_model
-                realized_predictions = (
-                    felix_predictor._predict_and_realize_batch(
-                        sources, is_insertion=True
-                    )
+                realized_predictions = felix_predictor._predict_and_realize_batch(
+                    sources, is_insertion=True
                 )
                 self.assertEqual(realized_predictions[0], gold)
 

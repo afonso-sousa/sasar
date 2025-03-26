@@ -3,7 +3,27 @@ from copy import deepcopy
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, PreTrainedModel
+from transformers import AutoModel, PretrainedConfig, PreTrainedModel
+
+
+class MyTaggerConfig(PretrainedConfig):
+    model_type = "mytagger"
+
+    def __init__(
+        self,
+        pointing=True,
+        num_classes=10,
+        query_size=64,
+        query_transformer=True,
+        pointing_weight=1.0,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.pointing = pointing
+        self.num_classes = num_classes
+        self.query_size = query_size
+        self.query_transformer = query_transformer
+        self.pointing_weight = pointing_weight
 
 
 class TagLoss(nn.Module):
@@ -74,12 +94,11 @@ class MyTagger(PreTrainedModel):
     (self-attention) to a Transformer encoder.
     """
 
+    config_class = MyTaggerConfig
+
     def __init__(
         self,
         config,
-        model_name_or_path,
-        seq_length=128,
-        pointing_weight=1.0,
     ):
         """Creates Felix Tagger.
 
@@ -92,13 +111,14 @@ class MyTagger(PreTrainedModel):
             seq_length: Maximum sequence length.
             use_pointing: Whether a pointing network is used.
         """
-        super(MyTagger, self).__init__(config)
+        super().__init__(config)
 
-        self._backbone = AutoModel.from_pretrained(model_name_or_path, config=config)
-        self._seq_length = seq_length
+        self._backbone = AutoModel.from_pretrained(config.backbone_name)
+
+        self._seq_length = config.seq_length
         self._config = config
         self._use_pointing = config.pointing
-        self._pointing_weight = pointing_weight
+        self._pointing_weight = config.pointing_weight
 
         self._tag_logits_layer = nn.Linear(
             self._config.hidden_size, self._config.num_classes
@@ -112,7 +132,7 @@ class MyTagger(PreTrainedModel):
         self._tag_embedding_layer = nn.Embedding(self._config.num_classes, tag_size)
 
         self._position_embedding_layer = PositionEmbedding(
-            seq_length, embedding_dim=tag_size
+            self._seq_length, embedding_dim=tag_size
         )
         self._edit_tagged_sequence_output_layer = nn.Linear(
             self._config.hidden_size + 2 * tag_size,
@@ -139,6 +159,14 @@ class MyTagger(PreTrainedModel):
         self._key_embeddings_layer = nn.Linear(
             self._config.hidden_size, self._config.query_size
         )
+
+    def get_input_embeddings(self):
+        return self._backbone.get_input_embeddings()
+
+    def resize_token_embeddings(self, new_num_tokens: int):
+        self._backbone.resize_token_embeddings(new_num_tokens)
+        self.config.vocab_size = new_num_tokens
+        return self.get_input_embeddings()
 
     def _attention_scores(self, query, key, mask=None):
         """Calculates attention scores as a query-key dot product.

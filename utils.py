@@ -28,6 +28,11 @@ def build_feed_dict(
     Returns:
       Dictionary with model features or None if `len(tokens) > max_seq_length` or if the number of MASKs is larger than `max_predictions_per_seq`.
     """
+    # Truncate if necessary
+    if len(tokens) > max_seq_length:
+        tokens = tokens[:max_seq_length]
+        if target_tokens:
+            target_tokens = target_tokens[:max_seq_length]
 
     # Deleted tokens (bracketed by unused) should have a segment_id of 2.
     unused = False
@@ -43,10 +48,8 @@ def build_feed_dict(
     input_mask = [1] * len(tokens)
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
-    assert len(token_type_ids) == len(input_ids)
-
-    if len(input_ids) > max_seq_length:
-        return None
+    assert len(token_type_ids) == len(input_ids) == len(input_mask)
+    assert len(input_ids) <= max_seq_length
 
     feed_dict = {
         "input_ids": input_ids,

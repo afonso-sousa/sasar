@@ -261,19 +261,53 @@ def main():
     label_list = utils.read_label_map(args.label_map_file, use_str_keys=True)
     label_list = {v: k for k, v in label_list.items()}
 
-    config = AutoConfig.from_pretrained(args.model_name_or_path)
-    config.pointing = args.use_pointing
-    config.num_classes = len(label_list)
-    config.query_size = 64
-    config.query_transformer = True
+    if "with_graph" in args.train_file:
+
+        def extract_relations_from_amr(file_path):
+            relations = set()
+            with open(file_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    example_dict = json.loads(line)
+                    amr_source = example_dict.get("amr_source", "")
+                    # Extract words starting with :
+                    relations.update(
+                        word for word in amr_source.split() if word.startswith(":")
+                    )
+            return list(relations)
+
+        def load_or_extract_relations():
+            relations_file = os.path.join("cache_files", "amr_relations.json")
+            if os.path.exists(relations_file):
+                with open(relations_file, "r", encoding="utf-8") as f:
+                    relations = json.load(f)
+            else:
+                train_relations = extract_relations_from_amr(
+                    "cache_files/paws_AMR_train.jsonl"
+                )
+                relations = list(set(train_relations))
+                with open(relations_file, "w", encoding="utf-8") as f:
+                    json.dump(relations, f)
+            return relations
+
+        amr_relations = load_or_extract_relations()
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model_name_or_path, additional_special_tokens=amr_relations
+        )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+
     if args.model_type == "inserter":
+        config = AutoConfig.from_pretrained(args.model_name_or_path)
+        config.vocab_size = len(tokenizer)
         model = my_models.get_insertion_model(config, args.model_name_or_path)
     elif args.model_type == "tagger":
         model = my_models.get_tagging_model(
-            config,
             args.model_name_or_path,
             args.max_seq_length,
             pointing_weight=args.pointing_weight,
+            use_pointing=args.use_pointing,
+            num_classes=len(label_list),
+            vocab_size=len(tokenizer),
         )
     elif args.model_type == "joint":
         model = my_models.get_joint_model(
@@ -282,8 +316,11 @@ def main():
             args.max_seq_length,
             pointing_weight=args.pointing_weight,
         )
+    else:
+        raise ValueError(f"Model type {args.model_type} not recognized.")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+    if "with_graph" in args.train_file:
+        model.resize_token_embeddings(len(tokenizer))
 
     if accelerator.is_main_process:
         # Handle the repository creation
@@ -665,7 +702,9 @@ def main():
             is_main_process=accelerator.is_main_process,
             save_function=accelerator.save,
         )
-        with open(os.path.join(args.output_dir, "scores.json"), "w") as f:
+        if "with_graph" in args.train_file:
+            tokenizer.save_pretrained(args.output_dir)
+        with open(os.path.join(args.output_dir, "eval_scores.json"), "w") as f:
             if args.model_type == "inserter":
                 json.dump({"perplexity": perplexity}, f)
             elif args.model_type == "tagger":

@@ -1,17 +1,25 @@
 import os
 
 import torch
-from transformers import AutoConfig, AutoModelForMaskedLM, DataCollatorForSeq2Seq
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForMaskedLM,
+    DataCollatorForSeq2Seq,
+)
 
 import beam_search
 import constants
 import insertion_converter
 import preprocess
 import utils
-from my_tagger import MyTagger
+from my_tagger import MyTagger, MyTaggerConfig
+
+AutoConfig.register("mytagger", MyTaggerConfig)
+AutoModel.register(MyTaggerConfig, MyTagger)
 
 
-class FelixPredictor:
+class Predictor:
     def __init__(
         self,
         model_tagging_filepath,
@@ -22,6 +30,9 @@ class FelixPredictor:
         use_open_vocab=False,
         is_pointing=False,
         special_glue_string_for_joining_sources=" ",
+        use_token_type_ids=False,
+        with_graph=False,
+        no_deleted_spans=False,
     ):
         """Initializes an instance of FelixPredictor.
 
@@ -40,8 +51,8 @@ class FelixPredictor:
               only True is supported.
             insert_after_token: Whether to insert tokens after rather than before
               the current token.
-            special_glue_string_for_joining_sources: String that is used to join
-              multiple source strings of a given example into one string.
+            special_glue_string_for_joining_sources: String that is used to join multiple source strings of a given example into one string.
+            use_token_type_ids: Whether to use token type ids in the model.
         """
         if not use_open_vocab:
             raise ValueError("Currently only use_open_vocab=True is supported")
@@ -62,6 +73,7 @@ class FelixPredictor:
         self._sequence_length = sequence_length
         self._use_open_vocab = use_open_vocab
         self._is_pointing = is_pointing
+        self._use_token_type_ids = use_token_type_ids
 
         self._builder = preprocess.initialize_builder(
             use_open_vocab=self._use_open_vocab,
@@ -69,6 +81,8 @@ class FelixPredictor:
             max_seq_length=self._sequence_length,
             tokenizer_name=tokenizer_name,
             special_glue_string_for_sources=special_glue_string_for_joining_sources,
+            with_graph=with_graph,
+            include_deleted_spans=not no_deleted_spans,
         )
         self._inverse_label_map = {
             tag_id: tag for tag, tag_id in self._builder.label_map.items()
@@ -102,12 +116,7 @@ class FelixPredictor:
             )
             self._insertion_model.eval()
         else:
-            config_path = os.path.join(self._model_tagging_filepath, "config.json")
-            config = AutoConfig.from_pretrained(config_path)
-            self._tagging_model = MyTagger.from_pretrained(
-                self._model_tagging_filepath,
-                config=config,
-            )
+            self._tagging_model = MyTagger.from_pretrained(self._model_tagging_filepath)
             self._tagging_model.eval()
 
     def _predict_and_realize_batch(self, source_sentences, is_insertion):
@@ -146,13 +155,16 @@ class FelixPredictor:
                 )
 
                 # Note masked_lm_ids and masked_lm_weights are filled with zeros.
-                batch_dictionaries.append(
-                    {
-                        "input_ids": torch.tensor(example["input_ids"]),
-                        "attention_mask": torch.tensor(example["input_mask"]),
-                        "token_type_ids": torch.tensor(example["token_type_ids"]),
-                    }
-                )
+                batch_dict = {
+                    "input_ids": torch.tensor(example["input_ids"]),
+                    "attention_mask": torch.tensor(example["input_mask"]),
+                }
+                if "token_type_ids" in example and self._use_token_type_ids:
+                    batch_dict["token_type_ids"] = torch.tensor(
+                        example["token_type_ids"]
+                    )
+
+                batch_dictionaries.append(batch_dict)
             else:
                 example, _ = self._builder.build_transformer_example(
                     [source_sentence], target=None, is_test_time=True
@@ -161,12 +173,14 @@ class FelixPredictor:
                 assert example is not None, (
                     f"Tagging could not convert " f"{source_sentence}."
                 )
-                dict_element = {
+                batch_dict = {
                     "input_ids": torch.tensor(example.input_ids),
                     "attention_mask": torch.tensor(example.input_mask),
-                    "token_type_ids": torch.tensor(example.token_type_ids),
                 }
-                batch_dictionaries.append(dict_element)
+                if hasattr(example, "token_type_ids") and self._use_token_type_ids:
+                    batch_dict["token_type_ids"] = torch.tensor(example.token_type_ids)
+
+                batch_dictionaries.append(batch_dict)
 
         data_collator = DataCollatorForSeq2Seq(self._builder.tokenizer)
 
@@ -175,6 +189,9 @@ class FelixPredictor:
         # DataCollatorForSeq2Seq will add "labels" to the batch_list, which is not needed.
         if "labels" in batch_list:
             del batch_list["labels"]
+
+        if not self._use_token_type_ids and "token_type_ids" in batch_list:
+            del batch_list["token_type_ids"]
 
         return batch_dictionaries, batch_list
 

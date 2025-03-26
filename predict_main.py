@@ -16,7 +16,7 @@ def batch_generator(
     """Produces batches for predictions."""
     source_batch = []
     target_batch = []
-    for source, target in utils.yield_inputs(
+    for source, target, _, _ in utils.yield_inputs(
         dataset,
     ):
         source_batch.append(source[0])
@@ -67,6 +67,21 @@ def main():
         type=int,
         help="Batch size for the prediction of insertion and tagging models.",
     )
+    parser.add_argument(
+        "--use_token_type_ids",
+        action="store_true",
+        help="Whether to use token_type_ids in the dataset",
+    )
+    parser.add_argument(
+        "--with_graph",
+        action="store_true",
+        help="Whether to use graph information or not.",
+    )
+    parser.add_argument(
+        "--no_deleted_spans",
+        action="store_true",
+        help="Whether to not include deleted spans in processing.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -82,17 +97,21 @@ def main():
     else:
         dataset = load_dataset(args.dataset, split=args.split)
 
-    model_arch_name = os.path.basename(os.path.dirname(args.model_tagging_filepath))
+    path_components = args.model_tagging_filepath.split(os.sep)
+    model_hub_path = os.path.join(*path_components[1:3])
 
-    predictor = predict.FelixPredictor(
+    predictor = predict.Predictor(
         model_tagging_filepath=args.model_tagging_filepath,
         model_insertion_filepath=args.model_insertion_filepath,
-        tokenizer_name=model_arch_name,
+        tokenizer_name=model_hub_path,
         label_map_file=args.label_map_file,
         sequence_length=args.max_seq_length,
         use_open_vocab=args.use_open_vocab,
         is_pointing=args.use_pointing,
         special_glue_string_for_joining_sources=args.special_glue_string_for_joining_sources,
+        with_graph=args.with_graph,
+        use_token_type_ids=args.use_token_type_ids,
+        no_deleted_spans=args.no_deleted_spans,
     )
 
     num_predicted = 0

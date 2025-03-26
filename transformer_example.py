@@ -113,7 +113,7 @@ class TransformerExampleBuilder:
         self._do_lower_case = (
             self.tokenizer.do_lower_case
             if hasattr(self.tokenizer, "do_lower_case")
-            else False
+            else True
         )
         self._use_open_vocab = use_open_vocab
         self._converter_insertion = converter_insertion
@@ -137,7 +137,6 @@ class TransformerExampleBuilder:
           1. TransformerExample for the tagging model or None if there's a tag not found in self.label_map or conversion from text to tags was infeasible.
           2. FeedDict for the insertion model or None if the TransformerExample or the insertion conversion failed.
         """
-
         merged_sources = self._special_glue_string_for_sources.join(sources)
         merged_sources = merged_sources.strip()
         if self._do_lower_case:
@@ -157,13 +156,13 @@ class TransformerExampleBuilder:
 
         input_ids = tokenized_input.input_ids
         input_mask = tokenized_input.attention_mask
-        token_type_ids = tokenized_input.token_type_ids
+        token_type_ids = getattr(tokenized_input, "token_type_ids", None)
 
         if not target or is_test_time:
             example = TransformerExample(
                 input_ids=input_ids,
                 input_mask=input_mask,
-                token_type_ids=token_type_ids,
+                token_type_ids=token_type_ids if token_type_ids is not None else [],
                 labels=[],
                 point_indexes=[],
                 labels_mask=[],
