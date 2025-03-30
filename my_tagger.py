@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, PretrainedConfig, PreTrainedModel
+from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 
 
 class MyTaggerConfig(PretrainedConfig):
@@ -113,7 +113,11 @@ class MyTagger(PreTrainedModel):
         """
         super().__init__(config)
 
-        self._backbone = AutoModel.from_pretrained(config.backbone_name)
+        backbone_config = AutoConfig.from_pretrained(config.backbone_name)
+        backbone_config.vocab_size = config.vocab_size
+        self._backbone = AutoModel.from_pretrained(
+            config.backbone_name, config=backbone_config, ignore_mismatched_sizes=True
+        )
 
         self._seq_length = config.seq_length
         self._config = config

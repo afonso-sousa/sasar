@@ -3,7 +3,7 @@ split="test"
 output_dir="output"
 model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
 
-include_deleted_spans=true
+include_deleted_spans=false
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
   deleted_spans_flag=""
@@ -11,7 +11,7 @@ else
   del_span_suffix="no_del_spans"
   deleted_spans_flag="--no_deleted_spans"
 fi
-arch_name="sasar_${del_span_suffix}" # sasar_no_del_spans
+arch_name="joint_sasar_${del_span_suffix}" # sasar_no_del_spans
 
 main_dir=$output_dir/$model_name/$arch_name
 

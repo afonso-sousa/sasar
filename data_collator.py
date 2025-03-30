@@ -118,14 +118,16 @@ class DataCollatorForJointModel:
 
     def __call__(self, features):
         # Pad tagging fields
-        tagging_features = [
-            {
+        tagging_features = []
+        for feature in features:
+            tagging_feature = {
                 "input_ids": feature["tagging_input_ids"],
                 "attention_mask": feature["tagging_input_mask"],
-                "token_type_ids": feature["tagging_token_type_ids"],
             }
-            for feature in features
-        ]
+            if "tagging_token_type_ids" in feature:
+                tagging_feature["token_type_ids"] = feature["tagging_token_type_ids"]
+            tagging_features.append(tagging_feature)
+
         tagging_batch = self.tokenizer.pad(
             tagging_features,
             padding=self.padding,
@@ -135,14 +137,18 @@ class DataCollatorForJointModel:
         )
 
         # Pad insertion fields
-        insertion_features = [
-            {
+        insertion_features = []
+        for feature in features:
+            insertion_feature = {
                 "input_ids": feature["insertion_input_ids"],
-                "attention_mask": feature["insertion_input_mask"],
-                "token_type_ids": feature["insertion_token_type_ids"],
+                "attention_mask": feature["insertion_attention_mask"],
             }
-            for feature in features
-        ]
+            if "insertion_token_type_ids" in feature:
+                insertion_feature["token_type_ids"] = feature[
+                    "insertion_token_type_ids"
+                ]
+            insertion_features.append(insertion_feature)
+
         insertion_batch = self.tokenizer.pad(
             insertion_features,
             padding=self.padding,

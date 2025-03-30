@@ -31,8 +31,46 @@ def batch_generator(
         yield source_batch, target_batch
 
 
+def get_predictor(model_path, tokenizer_name, label_map_file, args):
+    """Initialize the appropriate predictor based on model directory structure."""
+
+    tagger_path = os.path.join(model_path, "tagger")
+    inserter_path = os.path.join(model_path, "inserter")
+
+    if os.path.exists(tagger_path) and os.path.exists(inserter_path):
+        # Split model case
+        logging.info("Loading split model (tagger + inserter)")
+        return predict.Predictor(
+            model_tagging_filepath=tagger_path,
+            model_insertion_filepath=inserter_path,
+            tokenizer_name=tokenizer_name,
+            label_map_file=label_map_file,
+            sequence_length=args.max_seq_length,
+            use_open_vocab=args.use_open_vocab,
+            is_pointing=args.use_pointing,
+            special_glue_string_for_joining_sources=args.special_glue_string_for_joining_sources,
+            use_token_type_ids=args.use_token_type_ids,
+            no_deleted_spans=args.no_deleted_spans,
+        )
+    else:
+        # Joint model case
+        logging.info("Loading joint model")
+        return predict.JointPredictor(
+            model_filepath=model_path,
+            tokenizer_name=tokenizer_name,
+            label_map_file=label_map_file,
+            sequence_length=args.max_seq_length,
+            use_open_vocab=args.use_open_vocab,
+            is_pointing=args.use_pointing,
+            special_glue_string_for_joining_sources=args.special_glue_string_for_joining_sources,
+            use_token_type_ids=args.use_token_type_ids,
+            no_deleted_spans=args.no_deleted_spans,
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
+    # Dataset arguments
     parser.add_argument(
         "--dataset",
         type=str,
@@ -47,8 +85,13 @@ def main():
     )
     parser.add_argument("--predict_output_file", type=str, required=True)
     parser.add_argument("--label_map_file", type=str, required=True)
-    parser.add_argument("--model_tagging_filepath", type=str, required=True)
-    parser.add_argument("--model_insertion_filepath", type=str, required=True)
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        required=True,
+        help="Path to model directory. For split models, should contain 'tagger' and 'inserter' subdirectories.",
+    )
+    # Model configuration arguments
     parser.add_argument("--max_seq_length", type=int, default=128)
     parser.add_argument(
         "--use_open_vocab",
@@ -62,25 +105,21 @@ def main():
         "--special_glue_string_for_joining_sources", type=str, default="[SEP]"
     )
     parser.add_argument(
-        "--predict_batch_size",
-        default=32,
-        type=int,
-        help="Batch size for the prediction of insertion and tagging models.",
-    )
-    parser.add_argument(
         "--use_token_type_ids",
         action="store_true",
         help="Whether to use token_type_ids in the dataset",
     )
     parser.add_argument(
-        "--with_graph",
-        action="store_true",
-        help="Whether to use graph information or not.",
-    )
-    parser.add_argument(
         "--no_deleted_spans",
         action="store_true",
         help="Whether to not include deleted spans in processing.",
+    )
+    # Runtime arguments
+    parser.add_argument(
+        "--predict_batch_size",
+        default=32,
+        type=int,
+        help="Batch size for the prediction of insertion and tagging models.",
     )
     args = parser.parse_args()
 
@@ -97,21 +136,11 @@ def main():
     else:
         dataset = load_dataset(args.dataset, split=args.split)
 
-    path_components = args.model_tagging_filepath.split(os.sep)
-    model_hub_path = os.path.join(*path_components[1:3])
+    path_components = args.model_path.split(os.sep)
+    tokenizer_name = os.path.join(*path_components[1:3])
 
-    predictor = predict.Predictor(
-        model_tagging_filepath=args.model_tagging_filepath,
-        model_insertion_filepath=args.model_insertion_filepath,
-        tokenizer_name=model_hub_path,
-        label_map_file=args.label_map_file,
-        sequence_length=args.max_seq_length,
-        use_open_vocab=args.use_open_vocab,
-        is_pointing=args.use_pointing,
-        special_glue_string_for_joining_sources=args.special_glue_string_for_joining_sources,
-        with_graph=args.with_graph,
-        use_token_type_ids=args.use_token_type_ids,
-        no_deleted_spans=args.no_deleted_spans,
+    predictor = get_predictor(
+        args.model_path, tokenizer_name, args.label_map_file, args
     )
 
     num_predicted = 0

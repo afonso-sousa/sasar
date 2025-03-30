@@ -311,10 +311,12 @@ def main():
         )
     elif args.model_type == "joint":
         model = my_models.get_joint_model(
-            config,
             args.model_name_or_path,
             args.max_seq_length,
             pointing_weight=args.pointing_weight,
+            use_pointing=args.use_pointing,
+            num_classes=len(label_list),
+            vocab_size=len(tokenizer),
         )
     else:
         raise ValueError(f"Model type {args.model_type} not recognized.")
@@ -540,6 +542,7 @@ def main():
     early_stopping_patience = args.patience
     best_metric = None
     patience_counter = 0
+    best_metrics = None
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
         if (
@@ -665,19 +668,44 @@ def main():
             )
             current_metric = (eval_metric["f1"] + (1 / perplexity)) / 2
 
+        if args.model_type == "inserter":
+            current_metrics = {"perplexity": perplexity}
+        elif args.model_type == "tagger":
+            current_metrics = {
+                f"eval_{k}": (
+                    float(v)
+                    if isinstance(v, (np.float64, np.float32))
+                    else int(v) if isinstance(v, (np.int64, np.int32)) else v
+                )
+                for k, v in eval_metric.items()
+            }
+        elif args.model_type == "joint":
+            current_metrics = {
+                f"eval_{k}": (
+                    float(v)
+                    if isinstance(v, (np.float64, np.float32))
+                    else int(v) if isinstance(v, (np.int64, np.int32)) else v
+                )
+                for k, v in eval_metric.items()
+            }
+            current_metrics["perplexity"] = perplexity
+
         if early_stopping_patience is not None:
             if best_metric is None or current_metric > best_metric:
                 best_metric = current_metric
+                best_metrics = current_metrics
                 patience_counter = 0
                 # Save the best model
                 if args.output_dir is not None:
                     accelerator.wait_for_everyone()
                     unwrapped_model = accelerator.unwrap_model(model)
                     unwrapped_model.save_pretrained(
-                        os.path.join(args.output_dir, "best_model"),
+                        args.output_dir,
                         is_main_process=accelerator.is_main_process,
                         save_function=accelerator.save,
                     )
+                    if "with_graph" in args.train_file:
+                        tokenizer.save_pretrained(args.output_dir)
             else:
                 patience_counter += 1
                 accelerator.print(
@@ -686,6 +714,11 @@ def main():
 
             if patience_counter >= early_stopping_patience:
                 accelerator.print("Early stopping triggered!")
+                if args.output_dir is not None and best_metrics is not None:
+                    with open(
+                        os.path.join(args.output_dir, "eval_scores.json"), "w"
+                    ) as f:
+                        json.dump(best_metrics, f)
                 break
 
         if args.checkpointing_steps == "epoch":
@@ -694,36 +727,17 @@ def main():
                 output_dir = os.path.join(args.output_dir, output_dir)
             accelerator.save_state(output_dir)
 
-    if args.output_dir is not None:
-        accelerator.wait_for_everyone()
-        unwrapped_model = accelerator.unwrap_model(model)
-        unwrapped_model.save_pretrained(
-            args.output_dir,
-            is_main_process=accelerator.is_main_process,
-            save_function=accelerator.save,
+    # If we finished all epochs without early stopping, save metrics now
+    if (
+        args.output_dir is not None
+        and best_metrics is not None
+        and (
+            early_stopping_patience is None
+            or patience_counter < early_stopping_patience
         )
-        if "with_graph" in args.train_file:
-            tokenizer.save_pretrained(args.output_dir)
+    ):
         with open(os.path.join(args.output_dir, "eval_scores.json"), "w") as f:
-            if args.model_type == "inserter":
-                json.dump({"perplexity": perplexity}, f)
-            elif args.model_type == "tagger":
-                all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
-                for key, value in all_results.items():
-                    if isinstance(value, np.float64):
-                        all_results[key] = float(value)
-                    elif isinstance(value, np.int64):
-                        all_results[key] = int(value)
-                json.dump(all_results, f)
-            elif args.model_type == "joint":
-                all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
-                for key, value in all_results.items():
-                    if isinstance(value, np.float64):
-                        all_results[key] = float(value)
-                    elif isinstance(value, np.int64):
-                        all_results[key] = int(value)
-                all_results["perplexity"] = perplexity
-                json.dump(all_results, f)
+            json.dump(best_metrics, f)
 
 
 if __name__ == "__main__":

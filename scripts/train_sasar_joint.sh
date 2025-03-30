@@ -8,8 +8,10 @@ else
   del_span_suffix="no_del_spans"
 fi
 
+arch_name="joint_sasar_${del_span_suffix}"
+
 CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
-    --output_dir output/$model_name/joint_with_graph_${del_span_suffix} \
+    --output_dir output/$model_name/$arch_name_${del_span_suffix} \
     --train_file input/paws/train_with_graph_${del_span_suffix}_joint.jsonl \
     --validation_file input/paws/validation_with_graph_${del_span_suffix}_joint.jsonl \
     --model_name_or_path $model_name \
@@ -25,4 +27,5 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --pointing_weight 1 \
     --use_weighted_labels \
     --model_type joint \
-    --patience 10
+    --patience 10 \
+    --max_train_steps 10

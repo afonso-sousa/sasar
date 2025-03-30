@@ -2,16 +2,49 @@ import math
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoModelForMaskedLM, PreTrainedModel
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForMaskedLM,
+    PretrainedConfig,
+    PreTrainedModel,
+)
 
 from my_tagger import PositionEmbedding, TagLoss, get_mask
 
 
-class JointModel(PreTrainedModel):
-    def __init__(self, config, model_name_or_path, seq_length=128, pointing_weight=1.0):
-        super(JointModel, self).__init__(config)
+class JointModelConfig(PretrainedConfig):
+    model_type = "jointmodel"
 
-        self.encoder = AutoModel.from_pretrained(model_name_or_path, config=config)
+    def __init__(
+        self,
+        pointing=True,
+        num_classes=10,
+        query_size=64,
+        query_transformer=True,
+        pointing_weight=1.0,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.pointing = pointing
+        self.num_classes = num_classes
+        self.query_size = query_size
+        self.query_transformer = query_transformer
+        self.pointing_weight = pointing_weight
+
+
+class JointModel(PreTrainedModel):
+
+    config_class = JointModelConfig
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        encoder_config = AutoConfig.from_pretrained(config.backbone_name)
+        encoder_config.vocab_size = config.vocab_size
+        self.encoder = AutoModel.from_pretrained(
+            config.backbone_name, config=encoder_config, ignore_mismatched_sizes=True
+        )
 
         # Check if the encoder supports token_type_ids
         self.supports_token_type_ids = (
@@ -20,7 +53,7 @@ class JointModel(PreTrainedModel):
         )
 
         mlm_aux_model = AutoModelForMaskedLM.from_pretrained(
-            model_name_or_path, config=config
+            config.backbone_name, config=encoder_config, ignore_mismatched_sizes=True
         )
         if hasattr(mlm_aux_model, "cls"):  # For models like BERT
             self.mlm_head = mlm_aux_model.cls
@@ -28,9 +61,9 @@ class JointModel(PreTrainedModel):
             self.head = mlm_aux_model.head
             self.decoder = mlm_aux_model.decoder
 
-        self.seq_length = seq_length
+        self.seq_length = config.seq_length
         self.use_pointing = config.pointing
-        self.pointing_weight = pointing_weight
+        self.pointing_weight = config.pointing_weight
 
         self.tag_logits_layer = nn.Linear(config.hidden_size, config.num_classes)
 
@@ -38,7 +71,7 @@ class JointModel(PreTrainedModel):
             tag_size = int(math.ceil(math.sqrt(config.num_classes)))
             self.tag_embedding_layer = nn.Embedding(config.num_classes, tag_size)
             self.position_embedding_layer = PositionEmbedding(
-                seq_length, embedding_dim=tag_size
+                self.seq_length, embedding_dim=tag_size
             )
             self.edit_tagged_sequence_output_layer = nn.Linear(
                 config.hidden_size + 2 * tag_size, config.hidden_size
@@ -47,6 +80,14 @@ class JointModel(PreTrainedModel):
                 config.hidden_size, config.query_size
             )
             self.key_embeddings_layer = nn.Linear(config.hidden_size, config.query_size)
+
+    def get_input_embeddings(self):
+        return self.encoder.get_input_embeddings()
+
+    def resize_token_embeddings(self, new_num_tokens: int):
+        self.encoder.resize_token_embeddings(new_num_tokens)
+        self.config.vocab_size = new_num_tokens
+        return self.get_input_embeddings()
 
     def forward(
         self,

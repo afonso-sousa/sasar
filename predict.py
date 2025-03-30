@@ -13,10 +13,15 @@ import constants
 import insertion_converter
 import preprocess
 import utils
+from data_collator import DataCollatorForJointModel
+from joint_model import JointModel, JointModelConfig
 from my_tagger import MyTagger, MyTaggerConfig
 
 AutoConfig.register("mytagger", MyTaggerConfig)
 AutoModel.register(MyTaggerConfig, MyTagger)
+
+AutoConfig.register("jointmodel", JointModelConfig)
+AutoModel.register(JointModelConfig, JointModel)
 
 
 class Predictor:
@@ -31,7 +36,6 @@ class Predictor:
         is_pointing=False,
         special_glue_string_for_joining_sources=" ",
         use_token_type_ids=False,
-        with_graph=False,
         no_deleted_spans=False,
     ):
         """Initializes an instance of FelixPredictor.
@@ -81,7 +85,6 @@ class Predictor:
             max_seq_length=self._sequence_length,
             tokenizer_name=tokenizer_name,
             special_glue_string_for_sources=special_glue_string_for_joining_sources,
-            with_graph=with_graph,
             include_deleted_spans=not no_deleted_spans,
         )
         self._inverse_label_map = {
@@ -135,6 +138,15 @@ class Predictor:
         else:
             realizations = self._realize_tagging_batch(batch_dictionaries, predictions)
         return realizations
+
+    def _create_insertion_example(self, source_sentence):
+        """Creates an insertion example from a source sentence."""
+        # Note source_sentence is the output from the tagging model and therefore already tokenized.
+        return utils.build_feed_dict(
+            source_sentence.split(" "),
+            self._builder.tokenizer,
+            max_seq_length=self._sequence_length,
+        )
 
     def _convert_source_sentences_into_batch(self, source_sentences, is_insertion):
         """Converts source sentence into a batch."""
@@ -256,38 +268,6 @@ class Predictor:
 
         new_tokens = self._builder.tokenizer.decode(new_ids)
         return new_tokens
-
-        # tokens = self._builder.tokenizer.convert_ids_to_tokens(
-        #     input_ids[: end_index + 1]
-        # )
-        # breakpoint()
-        # # tokens = self._builder.tokenizer.decode(input_ids[: end_index + 1])
-        # current_mask = 0
-        # new_tokens = []
-        # in_deletion_bracket = False
-        # for token in tokens.split():
-        #     if token.lower() == constants.DELETE_SPAN_END:
-        #         in_deletion_bracket = False
-        #         continue
-        #     elif in_deletion_bracket:
-        #         continue
-        #     elif token.lower() == constants.DELETE_SPAN_START:
-        #         in_deletion_bracket = True
-        #         continue
-
-        #     if token == self._builder.tokenizer.mask_token:
-        #         if predicted_tokens.ndim == 0:
-        #             predicted_tokens = predicted_tokens.unsqueeze(0)
-        #         new_tokens.append(
-        #             self._builder.tokenizer.convert_ids_to_tokens(
-        #                 [predicted_tokens[current_mask]]
-        #             )[0]
-        #         )
-        #         current_mask += 1
-        #     else:
-        #         new_tokens.append(token)
-
-        # return new_tokens
 
     def _realize_tagging_batch(self, source_batch, prediction_batch):
         """Produces the realized predictions for a batch from the tagging model."""
@@ -471,3 +451,143 @@ class Predictor:
         if tokens is None:
             return None
         return tokens[0]
+
+
+class JointPredictor(Predictor):
+    """Predictor for joint models that output tagging and insertion predictions together."""
+
+    def __init__(
+        self,
+        model_filepath: str,
+        tokenizer_name: str,
+        label_map_file: str,
+        sequence_length: int = 128,
+        use_open_vocab: bool = False,
+        is_pointing: bool = False,
+        special_glue_string_for_joining_sources: str = " ",
+        use_token_type_ids: bool = False,
+        no_deleted_spans: bool = False,
+    ):
+        """Initializes a JointPredictor instance.
+
+        Args:
+            model_filepath: Path to the joint model checkpoint.
+            Other args: Same as Predictor.
+        """
+        super().__init__(
+            model_tagging_filepath=None,
+            model_insertion_filepath=None,
+            tokenizer_name=tokenizer_name,
+            label_map_file=label_map_file,
+            sequence_length=sequence_length,
+            use_open_vocab=use_open_vocab,
+            is_pointing=is_pointing,
+            special_glue_string_for_joining_sources=special_glue_string_for_joining_sources,
+            use_token_type_ids=use_token_type_ids,
+            no_deleted_spans=no_deleted_spans,
+        )
+        self._model_filepath = model_filepath
+        self._joint_model = None
+
+        if not is_pointing:
+            raise ValueError("Pointing is not supported in joint models.")
+
+    def _load_model(self):
+        if self._joint_model is None:
+            self._joint_model = AutoModel.from_pretrained(self._model_filepath)
+            self._joint_model.eval()
+
+    def _convert_source_sentences_into_batch(self, source_sentences):
+        """Converts source sentence into a batch."""
+        batch_dictionaries = []
+        for source_sentence in source_sentences:
+            example = self._create_insertion_example(source_sentence)
+
+            assert example is not None, (
+                f"Source sentence '{source_sentence}' returned None when "
+                "converting to insertion example."
+            )
+
+            # Note masked_lm_ids and masked_lm_weights are filled with zeros.
+            batch_dict = {
+                "insertion_input_ids": torch.tensor(example["input_ids"]),
+                "insertion_attention_mask": torch.tensor(example["input_mask"]),
+            }
+            if "token_type_ids" in example and self._use_token_type_ids:
+                batch_dict["insertion_token_type_ids"] = torch.tensor(
+                    example["token_type_ids"]
+                )
+
+            example, _ = self._builder.build_transformer_example(
+                [source_sentence], target=None, is_test_time=True
+            )
+
+            assert example is not None, (
+                f"Tagging could not convert " f"{source_sentence}."
+            )
+            batch_dict.update(
+                {
+                    "tagging_input_ids": torch.tensor(example.input_ids),
+                    "tagging_input_mask": torch.tensor(example.input_mask),
+                }
+            )
+            if hasattr(example, "token_type_ids") and self._use_token_type_ids:
+                batch_dict["tagging_token_type_ids"] = torch.tensor(
+                    example.token_type_ids
+                )
+
+            batch_dictionaries.append(batch_dict)
+
+        data_collator = DataCollatorForJointModel(self._builder.tokenizer)
+
+        batch_list = data_collator(batch_dictionaries)
+
+        # DataCollatorForSeq2Seq will add "labels" to the batch_list, which is not needed.
+        if "labels" in batch_list:
+            del batch_list["labels"]
+
+        if not self._use_token_type_ids and "token_type_ids" in batch_list:
+            del batch_list["token_type_ids"]
+
+        return batch_dictionaries, batch_list
+
+    def predict_end_to_end_batch(self, source_sentences):
+        (
+            batch_dictionaries,
+            batch_list,
+        ) = self._convert_source_sentences_into_batch(source_sentences)
+        tag_logits, pointing_logits, mlm_logits = self._predict_batch(batch_list)
+
+        tagging_batch = []
+        for item in batch_dictionaries:
+            tagging_batch.append(
+                {
+                    "input_ids": item["tagging_input_ids"],
+                    "attention_mask": item["tagging_input_mask"],
+                }
+            )
+        tagging_realizations = self._realize_tagging_batch(
+            tagging_batch, list(zip(tag_logits, pointing_logits))
+        )
+
+        insertion_batch = []
+        for item in batch_dictionaries:
+            insertion_batch.append(
+                {
+                    "input_ids": item["insertion_input_ids"],
+                    "attention_mask": item["insertion_attention_mask"],
+                }
+            )
+        insertion_realizations = self._realize_insertion_batch(
+            insertion_batch, torch.argmax(mlm_logits, dim=-1)
+        )
+        return tagging_realizations, insertion_realizations
+
+    def _predict_batch(self, source_batch):
+        """Produces output from the joint model."""
+        if self._joint_model is None:
+            self._load_model()
+
+        tag_logits, point_logits, mlm_logits = self._joint_model(**source_batch)
+
+        return tag_logits, point_logits, mlm_logits

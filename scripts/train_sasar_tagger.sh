@@ -1,6 +1,6 @@
 model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
 
-include_deleted_spans=false
+include_deleted_spans=true
 
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
