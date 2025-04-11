@@ -28,44 +28,43 @@ Running an experiment with SASAR consists of the following steps:
 ```
 sh ./scripts/vocabulary_constructor.sh
 ```
+This just creates a dictionary with the Tagger labels.
 
 ### 2. Converting data for insertion/tagging model
 
-The PAWS dataset can be found in the [official repository](https://github.com/google-research-datasets/paws) or for ease of use through the [HuggingFace Hub](https://huggingface.co/datasets/paws)
+We use two datasets: the PAWS dataset that can be found in the [official repository](https://github.com/google-research-datasets/paws) or for ease of use through the [HuggingFace Hub](https://huggingface.co/datasets/paws); and the Quora Question Pairs that can be found in the [official post](https://quoradata.quora.com/First-Quora-Dataset-Release-Question-Pairs) or using the [HuggingFace Hub](https://huggingface.co/datasets/sentence-transformers/quora-duplicates) and the subset `pair`.
 
 ```
-sh scripts/preprocess_data.sh
+# For Felix-type data preprocessing.
+sh ./scripts/preprocess_data.sh
+```
+
+Or
+
+```
+# For SASAR-type data preprocessing.
+sh ./scripts/preprocess_data_with_data.sh
+```
+
+For the latter, you may want to pre-extract the AMR graphs (altough not required). You can do so running:
+```
+sh ./scripts/run_amr_cache.sh
+```
+Additionally, you will need to fuse the tagging and insertion datasets with:
+```
+python join_tag_and_insert_data.py
 ```
 
 You may run it twice for train and validation sets.
 
 ### 3. Model Training
 
-Run the following command to train the tagger:
-```
-sh ./script/train_tagger.sh
-```
+You have a lot a flavours of models to train. Just check [scripts](https://github.com/afonso-sousa/sasar/tree/main/scripts) and search for `train_sasar_*.sh`.
 
-Or this command to train the inserter:
-```
-sh ./script/train_inserter.sh
-```
-
-**Note** These models can be trained independently, as such it is quicker to train them in parallel rather than sequentially.
+For split tagger and inserter, the models can be trained independently, so it might be quicker to train them in parallel rather than sequentially.
 
 ### 4. Prediction
-```
-sh ./scripts/predict.sh
-```
-
-The predictions output a TSV file with four columns: Source, the input to the insertion model, the final output, and the reference. Note the felix output is tokenized (WordPieces), including a start "[CLS]" and end "[SEP]". WordPieces can be removed by replacing " ##" with "". Additionally words have been split on punctuation "don't -> don ' t", this must also be reversed.
-
-## Running Unit Tests
-
-You can run all unit tests executing the following command:
-```
-python -m unittest discover -p "*_test.py"
-```
+Same goes for prediction. Check [scripts](https://github.com/afonso-sousa/sasar/tree/main/scripts) and search for `predict_sasar_*.sh`.
 
 ## License
 

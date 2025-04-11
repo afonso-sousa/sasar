@@ -1,4 +1,4 @@
-model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
+model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
 
 include_deleted_spans=false
 
@@ -10,8 +10,8 @@ fi
 
 arch_name="joint_sasar_${del_span_suffix}"
 
-CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
-    --output_dir output/$model_name/$arch_name_${del_span_suffix} \
+CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
+    --output_dir output/$model_name/$arch_name \
     --train_file input/paws/train_with_graph_${del_span_suffix}_joint.jsonl \
     --validation_file input/paws/validation_with_graph_${del_span_suffix}_joint.jsonl \
     --model_name_or_path $model_name \
@@ -28,4 +28,4 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --use_weighted_labels \
     --model_type joint \
     --patience 10 \
-    --max_train_steps 10
+    --use_token_type_ids

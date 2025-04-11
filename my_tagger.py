@@ -164,14 +164,6 @@ class MyTagger(PreTrainedModel):
             self._config.hidden_size, self._config.query_size
         )
 
-    def get_input_embeddings(self):
-        return self._backbone.get_input_embeddings()
-
-    def resize_token_embeddings(self, new_num_tokens: int):
-        self._backbone.resize_token_embeddings(new_num_tokens)
-        self.config.vocab_size = new_num_tokens
-        return self.get_input_embeddings()
-
     def _attention_scores(self, query, key, mask=None):
         """Calculates attention scores as a query-key dot product.
 

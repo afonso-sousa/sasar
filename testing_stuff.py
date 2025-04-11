@@ -204,6 +204,55 @@ print([x.point_index for x in points])
 # )
 # print(closest_match)
 
+# import insertion_converter
+# import transformer_example
+# import utils
+
+# max_seq_length = 128
+# tokenizer_name = "bert-base-uncased"
+# label_map_file = "input/label_map.json"
+
+# label_map = utils.read_label_map(label_map_file, use_str_keys=True)
+
+# converter_insertion = insertion_converter.InsertionConverter(
+#     max_seq_length=max_seq_length,
+#     label_map=label_map,
+#     tokenizer_name=tokenizer_name,
+# )
+# converter_tagging = pointing_converter.PointingConverter(
+#     {}, do_lower_case=True, with_graph=True
+# )
+
+# builder = transformer_example.TransformerExampleBuilder(
+#     label_map=label_map,
+#     tokenizer_name=tokenizer_name,
+#     max_seq_length=max_seq_length,
+#     converter=converter_tagging,
+#     use_open_vocab=True,
+#     converter_insertion=converter_insertion,
+#     special_glue_string_for_sources=" ",
+# )
+
+# example, insertion_example = builder.build_transformer_example(
+#     ["The novel was written by the famous author in just three months"],
+#     "The famous author wrote the novel in just 3 months",
+# )
+# # example, insertion_example = builder.build_transformer_example(
+# #     ["A simple sentence"],
+# #     "that has nothing to do with the original",
+# # )
+
+
+# print(builder.tokenizer.convert_ids_to_tokens(insertion_example["input_ids"]))
+# print(
+#     builder.tokenizer.convert_ids_to_tokens(
+#         [0 if a == -100 else a for a in insertion_example["masked_lm_ids"]]
+#     )
+# )
+# breakpoint()
+
+#########################
+
 import insertion_converter
 import transformer_example
 import utils
@@ -233,14 +282,16 @@ builder = transformer_example.TransformerExampleBuilder(
     special_glue_string_for_sources=" ",
 )
 
+amr_source = '(c / conflict-01\n      :ARG0 (p / province\n            :name (n / name\n                  :op1 "Baluchistan"))\n      :ARG2 (a / amr-unknown\n            :mod (e / exact)))'
+amr_target = '(m / multi-sentence\n      :snt1 (c / conflict-01\n            :ARG0 (p / province\n                  :name (n / name\n                        :op1 "Baluchistan"))\n            :ARG2 (a / amr-unknown))\n      :snt2 (w / want-01\n            :ARG0 (p2 / person\n                  :mod p)\n            :ARG1 (a2 / amr-unknown)))'
+
+
 example, insertion_example = builder.build_transformer_example(
-    ["The novel was written by the famous author in just three months"],
-    "The famous author wrote the novel in just 3 months",
+    ["What exactly is the Baluchistan conflict?"],
+    "What is the Baluchistan conflict? What do the people of Baluchistan want?",
+    amr_source,
+    amr_target,
 )
-# example, insertion_example = builder.build_transformer_example(
-#     ["A simple sentence"],
-#     "that has nothing to do with the original",
-# )
 
 
 print(builder.tokenizer.convert_ids_to_tokens(insertion_example["input_ids"]))

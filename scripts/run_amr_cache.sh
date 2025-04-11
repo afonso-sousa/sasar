@@ -1,8 +1,8 @@
 #!/bin/bash
 
-DATASET="paws"
-SPLIT="validation"
-OUTPUT_FILE="${DATASET}_AMR_${SPLIT}.jsonl"
+DATASET="raw-data/qqppos"
+SPLIT="train" # validation
+OUTPUT_FILE="$(basename "$DATASET")_AMR_${SPLIT}.jsonl"
 BATCH_SIZE=64
 
 echo "Running AMR extraction on dataset: $DATASET (split: $SPLIT)"

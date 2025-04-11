@@ -123,7 +123,13 @@ class TransformerExampleBuilder:
             self._special_glue_string_for_sources = " "
 
     def build_transformer_example(
-        self, sources, target=None, amr_source=None, amr_target=None, is_test_time=False
+        self,
+        sources,
+        target=None,
+        amr_source=None,
+        amr_target=None,
+        is_test_time=False,
+        use_token_type_ids=False,
     ):
         """Constructs a Transformer tagging and insertion examples.
 
@@ -152,6 +158,7 @@ class TransformerExampleBuilder:
             max_length=self._max_seq_length,
             padding=False,
             truncation=True,
+            return_token_type_ids=use_token_type_ids,
         )
 
         input_ids = tokenized_input.input_ids
@@ -162,7 +169,7 @@ class TransformerExampleBuilder:
             example = TransformerExample(
                 input_ids=input_ids,
                 input_mask=input_mask,
-                token_type_ids=token_type_ids if token_type_ids is not None else [],
+                token_type_ids=token_type_ids,
                 labels=[],
                 point_indexes=[],
                 labels_mask=[],

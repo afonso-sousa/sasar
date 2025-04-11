@@ -91,6 +91,12 @@ def main():
         required=True,
         help="Path to model directory. For split models, should contain 'tagger' and 'inserter' subdirectories.",
     )
+    parser.add_argument(
+        "--tokenizer_name",
+        type=str,
+        required=True,
+        help="Name of tokenizer to use.",
+    )
     # Model configuration arguments
     parser.add_argument("--max_seq_length", type=int, default=128)
     parser.add_argument(
@@ -133,14 +139,19 @@ def main():
         dataset = dataset.filter(lambda x: x["label"] == 1)
         dataset = dataset.rename_column("sentence1", "source")
         dataset = dataset.rename_column("sentence2", "target")
+    elif "qqppos" in args.dataset:
+        dataset = load_dataset(
+            args.dataset, data_files={args.split: f"{args.split}.csv.gz"}
+        )
+        dataset = dataset[args.split]
     else:
         dataset = load_dataset(args.dataset, split=args.split)
 
-    path_components = args.model_path.split(os.sep)
-    tokenizer_name = os.path.join(*path_components[1:3])
+    # path_components = args.model_path.split(os.sep)
+    # tokenizer_name = os.path.join(*path_components[1:3])
 
     predictor = get_predictor(
-        args.model_path, tokenizer_name, args.label_map_file, args
+        args.model_path, args.tokenizer_name, args.label_map_file, args
     )
 
     num_predicted = 0

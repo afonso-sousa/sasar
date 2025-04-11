@@ -24,6 +24,11 @@ def cache_amr_graphs(dataset_name, split="train", output_file=None, batch_size=3
         dataset = dataset.filter(lambda x: x["label"] == 1)
         dataset = dataset.rename_column("sentence1", "source")
         dataset = dataset.rename_column("sentence2", "target")
+    elif "qqppos" in args.dataset:
+        dataset = load_dataset(
+            args.dataset, data_files={args.split: f"{args.split}.csv.gz"}
+        )
+        dataset = dataset[args.split]
     else:
         dataset = load_dataset(dataset_name, split=split)
 

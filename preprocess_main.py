@@ -55,6 +55,7 @@ def load_amr_cache(amr_cache_file):
 
 
 def main(args):
+
     amr_cache = load_amr_cache(args.amr_cache_file)
 
     builder = preprocess.initialize_builder(
@@ -77,6 +78,11 @@ def main(args):
         dataset = dataset.filter(lambda x: x["label"] == 1)
         dataset = dataset.rename_column("sentence1", "source")
         dataset = dataset.rename_column("sentence2", "target")
+    elif "qqppos" in args.dataset:
+        dataset = load_dataset(
+            args.dataset, data_files={args.split: f"{args.split}.csv.gz"}
+        )
+        dataset = dataset[args.split]
     else:
         dataset = load_dataset(args.dataset, split=args.split)
 
@@ -120,7 +126,11 @@ def main(args):
                     print(f"{i} examples processed, {num_converted} converted.")
 
                 example, insertion_example = builder.build_transformer_example(
-                    sources, target, amr_source, amr_target
+                    sources,
+                    target,
+                    amr_source,
+                    amr_target,
+                    use_token_type_ids=args.use_token_type_ids,
                 )
                 if example is not None:
                     json_str = json.dumps(example.to_dict())
@@ -226,6 +236,11 @@ if __name__ == "__main__":
         "--include_deleted_spans",
         action="store_true",
         help="Whether to include deleted spans in processing.",
+    )
+    parser.add_argument(
+        "--use_token_type_ids",
+        action="store_true",
+        help="Whether to use token_type_ids in the dataset",
     )
 
     args = parser.parse_args()

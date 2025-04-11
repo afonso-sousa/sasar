@@ -90,7 +90,7 @@ class TextEditingDataset(Dataset):
                 "insertion_input_ids": torch.tensor(
                     data["insertion_input_ids"], dtype=torch.long
                 ),
-                "insertion_input_mask": torch.tensor(
+                "insertion_attention_mask": torch.tensor(
                     data["insertion_input_mask"], dtype=torch.long
                 ),
                 "insertion_token_type_ids": torch.tensor(
@@ -261,40 +261,7 @@ def main():
     label_list = utils.read_label_map(args.label_map_file, use_str_keys=True)
     label_list = {v: k for k, v in label_list.items()}
 
-    if "with_graph" in args.train_file:
-
-        def extract_relations_from_amr(file_path):
-            relations = set()
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    example_dict = json.loads(line)
-                    amr_source = example_dict.get("amr_source", "")
-                    # Extract words starting with :
-                    relations.update(
-                        word for word in amr_source.split() if word.startswith(":")
-                    )
-            return list(relations)
-
-        def load_or_extract_relations():
-            relations_file = os.path.join("cache_files", "amr_relations.json")
-            if os.path.exists(relations_file):
-                with open(relations_file, "r", encoding="utf-8") as f:
-                    relations = json.load(f)
-            else:
-                train_relations = extract_relations_from_amr(
-                    "cache_files/paws_AMR_train.jsonl"
-                )
-                relations = list(set(train_relations))
-                with open(relations_file, "w", encoding="utf-8") as f:
-                    json.dump(relations, f)
-            return relations
-
-        amr_relations = load_or_extract_relations()
-        tokenizer = AutoTokenizer.from_pretrained(
-            args.model_name_or_path, additional_special_tokens=amr_relations
-        )
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 
     if args.model_type == "inserter":
         config = AutoConfig.from_pretrained(args.model_name_or_path)
@@ -320,9 +287,6 @@ def main():
         )
     else:
         raise ValueError(f"Model type {args.model_type} not recognized.")
-
-    if "with_graph" in args.train_file:
-        model.resize_token_embeddings(len(tokenizer))
 
     if accelerator.is_main_process:
         # Handle the repository creation
@@ -703,6 +667,7 @@ def main():
                         args.output_dir,
                         is_main_process=accelerator.is_main_process,
                         save_function=accelerator.save,
+                        safe_serialization=False,
                     )
                     if "with_graph" in args.train_file:
                         tokenizer.save_pretrained(args.output_dir)

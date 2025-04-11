@@ -59,9 +59,9 @@ def join_tagging_and_insertion_data(
 # Example usage
 if __name__ == "__main__":
     input_dir = "input/paws"
-    split = "train"
+    split = "validation"
     with_graph = True
-    with_deleted_spans = False
+    with_deleted_spans = True
 
     core_name = f'{split}{"_with_graph" if with_graph else ""}{"_include_del_spans" if with_deleted_spans else "_no_del_spans"}'
     tagging_data_path = os.path.join(input_dir, f"{core_name}.json")

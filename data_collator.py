@@ -174,6 +174,7 @@ class DataCollatorForJointModel:
                     ),
                     dtype=torch.float32 if field.endswith("_mask") else torch.long,
                 )
+
         return batch
 
     def _pad_labels(self, labels, sequence_length, dtype=torch.long):

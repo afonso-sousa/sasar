@@ -155,6 +155,7 @@ class PointingConverter(object):
     def _compute_points_from_AMR(
         self, source_tokens, target_tokens, amr_source, amr_target
     ):
+        breakpoint()
         # Extract important concepts and relations
         source_amr_tokens = self.extract_amr_tokens(amr_source)
         target_amr_tokens = self.extract_amr_tokens(amr_target)
@@ -267,6 +268,17 @@ class PointingConverter(object):
             except ValueError:
                 return token
 
+        non_empty_source_tokens = [
+            key for key, value in source_tokens_indexes.items() if value
+        ]
+
+        if (
+            target_token == "?"
+            and "?" in non_empty_source_tokens
+            and "amr-unknown" in source_amr_tokens
+        ):
+            return "?"
+
         target_token_lemma = self.lemmatizer.lemmatize(
             target_token, get_wordnet_pos(target_token)
         )
@@ -281,9 +293,6 @@ class PointingConverter(object):
         target_token_lemma = convert_to_number(target_token_lemma)
 
         if target_token_lemma in source_amr_lemmas:
-            non_empty_source_tokens = [
-                key for key, value in source_tokens_indexes.items() if value
-            ]
             for word in non_empty_source_tokens:
                 processed_word = convert_to_number(word)
 

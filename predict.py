@@ -179,7 +179,10 @@ class Predictor:
                 batch_dictionaries.append(batch_dict)
             else:
                 example, _ = self._builder.build_transformer_example(
-                    [source_sentence], target=None, is_test_time=True
+                    [source_sentence],
+                    target=None,
+                    is_test_time=True,
+                    use_token_type_ids=self._use_token_type_ids,
                 )
 
                 assert example is not None, (
@@ -189,7 +192,7 @@ class Predictor:
                     "input_ids": torch.tensor(example.input_ids),
                     "attention_mask": torch.tensor(example.input_mask),
                 }
-                if hasattr(example, "token_type_ids") and self._use_token_type_ids:
+                if self._use_token_type_ids:
                     batch_dict["token_type_ids"] = torch.tensor(example.token_type_ids)
 
                 batch_dictionaries.append(batch_dict)
@@ -519,7 +522,10 @@ class JointPredictor(Predictor):
                 )
 
             example, _ = self._builder.build_transformer_example(
-                [source_sentence], target=None, is_test_time=True
+                [source_sentence],
+                target=None,
+                is_test_time=True,
+                use_token_type_ids=self._use_token_type_ids,
             )
 
             assert example is not None, (
@@ -531,7 +537,7 @@ class JointPredictor(Predictor):
                     "tagging_input_mask": torch.tensor(example.input_mask),
                 }
             )
-            if hasattr(example, "token_type_ids") and self._use_token_type_ids:
+            if self._use_token_type_ids:
                 batch_dict["tagging_token_type_ids"] = torch.tensor(
                     example.token_type_ids
                 )

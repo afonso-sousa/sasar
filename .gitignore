@@ -7,6 +7,6 @@ __pycache__/
 ### Local ###
 input/
 output/
-raw-data/
+raw-data
 processed-data/
 cache_files/

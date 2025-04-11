@@ -1,9 +1,12 @@
-model_name="answerdotai/ModernBERT-base" # "bert-base-uncased"
+dataset_name="qqppos"
+model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+
+arch_name="felix"
 
 CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
-    --output_dir output/$model_name/felix_tagger \
-    --train_file input/paws/train.json \
-    --validation_file input/paws/validation.json \
+    --output_dir output/$dataset_name/$model_name/$arch_name/tagger \
+    --train_file input/$dataset_name/train_$model_name.json \
+    --validation_file input/$dataset_name/validation_$model_name.json \
     --model_name_or_path $model_name \
     --label_map_file input/label_map.json \
     --max_seq_length 128 \
@@ -17,4 +20,5 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --pointing_weight 1 \
     --use_weighted_labels \
     --model_type tagger \
-    --patience 10
+    --patience 10 \
+    --use_token_type_ids

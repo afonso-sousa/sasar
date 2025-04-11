@@ -56,10 +56,10 @@ class JointModel(PreTrainedModel):
             config.backbone_name, config=encoder_config, ignore_mismatched_sizes=True
         )
         if hasattr(mlm_aux_model, "cls"):  # For models like BERT
-            self.mlm_head = mlm_aux_model.cls
+            self.my_mlm_head = mlm_aux_model.cls
         else:  # For models like ModernBert
-            self.head = mlm_aux_model.head
-            self.decoder = mlm_aux_model.decoder
+            self.my_head = mlm_aux_model.head
+            self.my_decoder = mlm_aux_model.decoder
 
         self.seq_length = config.seq_length
         self.use_pointing = config.pointing
@@ -81,13 +81,10 @@ class JointModel(PreTrainedModel):
             )
             self.key_embeddings_layer = nn.Linear(config.hidden_size, config.query_size)
 
-    def get_input_embeddings(self):
-        return self.encoder.get_input_embeddings()
+            if hasattr(config, "with_sinkhorn"):
+                from sinkhorn_layer import Sinkhorn
 
-    def resize_token_embeddings(self, new_num_tokens: int):
-        self.encoder.resize_token_embeddings(new_num_tokens)
-        self.config.vocab_size = new_num_tokens
-        return self.get_input_embeddings()
+                self.sinkhorn = Sinkhorn()
 
     def forward(
         self,
@@ -124,10 +121,10 @@ class JointModel(PreTrainedModel):
         insertion_outputs = self.encoder(**encoder_kwargs)[0]
 
         # MLM Loss
-        if hasattr(self, "mlm_head"):  # For models like BERT
-            mlm_logits = self.mlm_head(insertion_outputs)
+        if hasattr(self, "my_mlm_head"):  # For models like BERT
+            mlm_logits = self.my_mlm_head(insertion_outputs)
         else:  # For models like ModernBert
-            mlm_logits = self.decoder(self.head(insertion_outputs))
+            mlm_logits = self.my_decoder(self.my_head(insertion_outputs))
 
         mlm_loss = None
         if masked_lm_ids is not None:
@@ -159,6 +156,8 @@ class JointModel(PreTrainedModel):
         pointing_logits = self._attention_scores(
             query_embeddings, key_embeddings, tagging_attention_mask.float()
         )
+        if hasattr(self, "sinkhorn"):
+            pointing_logits = self.sinkhorn(pointing_logits)
 
         # Tagging Loss
         tagging_loss = None
