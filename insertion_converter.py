@@ -177,6 +177,7 @@ class InsertionConverter(object):
             current_index = source_indexes[current_index]
             if current_index == 0:
                 break
+
         return masked_tokens, target_tokens
 
     def create_insertion_example(

@@ -90,6 +90,7 @@ class Predictor:
         self._inverse_label_map = {
             tag_id: tag for tag, tag_id in self._builder.label_map.items()
         }
+        self._no_deleted_spans = no_deleted_spans
 
     def predict_end_to_end_batch(self, batch):
         """Takes in a batch of source sentences and runs Felix on them.
@@ -395,24 +396,26 @@ class Predictor:
                 out_tokens += masks
                 out_tokens_with_deletes += masks
 
-                # Find the deleted tokens, which appear after the current token.
-                deleted_tokens = []
-                for i in range(index + 1, source_length):
-                    if i in source_token_ids_set:
-                        break
-                    deleted_tokens.append(source_token_ids[i])
-                # Bracket the deleted tokens, between unused0 and unused1.
-                if deleted_tokens:
-                    deleted_tokens = (
-                        [constants.DELETE_SPAN_START]
-                        + list(
-                            self._builder.tokenizer.convert_ids_to_tokens(
-                                deleted_tokens
+                # Only include deleted tokens if no_deleted_spans is False
+                if not self._no_deleted_spans:
+                    # Find the deleted tokens, which appear after the current token.
+                    deleted_tokens = []
+                    for i in range(index + 1, source_length):
+                        if i in source_token_ids_set:
+                            break
+                        deleted_tokens.append(source_token_ids[i])
+                    # Bracket the deleted tokens, between unused0 and unused1.
+                    if deleted_tokens:
+                        deleted_tokens = (
+                            [constants.DELETE_SPAN_START]
+                            + list(
+                                self._builder.tokenizer.convert_ids_to_tokens(
+                                    deleted_tokens
+                                )
                             )
+                            + [constants.DELETE_SPAN_END]
                         )
-                        + [constants.DELETE_SPAN_END]
-                    )
-                    out_tokens_with_deletes += deleted_tokens
+                        out_tokens_with_deletes += deleted_tokens
             # Add the predicted phrase.
             elif "|" in tag:
                 pos_pipe = tag.index("|")
@@ -500,100 +503,23 @@ class JointPredictor(Predictor):
             self._joint_model = AutoModel.from_pretrained(self._model_filepath)
             self._joint_model.eval()
 
-    def _convert_source_sentences_into_batch(self, source_sentences):
-        """Converts source sentence into a batch."""
-        batch_dictionaries = []
-        for source_sentence in source_sentences:
-            example = self._create_insertion_example(source_sentence)
+    def _predict_batch(self, source_batch, is_insertion):
+        self._load_model()
+        if is_insertion:
+            predictions = self._joint_model.get_insertion_predictions(**source_batch)
+            return torch.argmax(predictions, dim=-1)
 
-            assert example is not None, (
-                f"Source sentence '{source_sentence}' returned None when "
-                "converting to insertion example."
+        if self._is_pointing:
+            tag_logits, pointing_logits = self._joint_model.get_tagging_predictions(
+                **source_batch
             )
+            # Convert two lists into a single list of tuples.
+            return list(zip(tag_logits, pointing_logits))
+        else:
+            tag_logits = self._tagging_model(**source_batch)
+            return tag_logits
 
-            # Note masked_lm_ids and masked_lm_weights are filled with zeros.
-            batch_dict = {
-                "insertion_input_ids": torch.tensor(example["input_ids"]),
-                "insertion_attention_mask": torch.tensor(example["input_mask"]),
-            }
-            if "token_type_ids" in example and self._use_token_type_ids:
-                batch_dict["insertion_token_type_ids"] = torch.tensor(
-                    example["token_type_ids"]
-                )
-
-            example, _ = self._builder.build_transformer_example(
-                [source_sentence],
-                target=None,
-                is_test_time=True,
-                use_token_type_ids=self._use_token_type_ids,
-            )
-
-            assert example is not None, (
-                f"Tagging could not convert " f"{source_sentence}."
-            )
-            batch_dict.update(
-                {
-                    "tagging_input_ids": torch.tensor(example.input_ids),
-                    "tagging_input_mask": torch.tensor(example.input_mask),
-                }
-            )
-            if self._use_token_type_ids:
-                batch_dict["tagging_token_type_ids"] = torch.tensor(
-                    example.token_type_ids
-                )
-
-            batch_dictionaries.append(batch_dict)
-
-        data_collator = DataCollatorForJointModel(self._builder.tokenizer)
-
-        batch_list = data_collator(batch_dictionaries)
-
-        # DataCollatorForSeq2Seq will add "labels" to the batch_list, which is not needed.
-        if "labels" in batch_list:
-            del batch_list["labels"]
-
-        if not self._use_token_type_ids and "token_type_ids" in batch_list:
-            del batch_list["token_type_ids"]
-
-        return batch_dictionaries, batch_list
-
-    def predict_end_to_end_batch(self, source_sentences):
-        (
-            batch_dictionaries,
-            batch_list,
-        ) = self._convert_source_sentences_into_batch(source_sentences)
-        tag_logits, pointing_logits, mlm_logits = self._predict_batch(batch_list)
-
-        tagging_batch = []
-        for item in batch_dictionaries:
-            tagging_batch.append(
-                {
-                    "input_ids": item["tagging_input_ids"],
-                    "attention_mask": item["tagging_input_mask"],
-                }
-            )
-        tagging_realizations = self._realize_tagging_batch(
-            tagging_batch, list(zip(tag_logits, pointing_logits))
-        )
-
-        insertion_batch = []
-        for item in batch_dictionaries:
-            insertion_batch.append(
-                {
-                    "input_ids": item["insertion_input_ids"],
-                    "attention_mask": item["insertion_attention_mask"],
-                }
-            )
-        insertion_realizations = self._realize_insertion_batch(
-            insertion_batch, torch.argmax(mlm_logits, dim=-1)
-        )
-        return tagging_realizations, insertion_realizations
-
-    def _predict_batch(self, source_batch):
-        """Produces output from the joint model."""
+    def get_number_of_parameters(self):
         if self._joint_model is None:
             self._load_model()
-
-        tag_logits, point_logits, mlm_logits = self._joint_model(**source_batch)
-
-        return tag_logits, point_logits, mlm_logits
+        return sum(p.numel() for p in self._joint_model.parameters())

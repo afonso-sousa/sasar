@@ -1,8 +1,9 @@
-from typing import Dict, Optional
+from typing import Dict
 
 import evaluate
 import numpy as np
-from datasets import load_dataset
+from datasets import Dataset, load_dataset
+from nltk.tokenize import word_tokenize
 
 
 def load_and_prepare_dataset(dataset_name: str, split: str = "train") -> Dataset:
@@ -27,13 +28,12 @@ def load_and_prepare_dataset(dataset_name: str, split: str = "train") -> Dataset
     return dataset
 
 
-def compute_ter_stats(dataset, compute_details: bool = False) -> Dict[str, float]:
+def compute_stats(dataset) -> Dict[str, float]:
     """
     Compute TER statistics between source and target texts.
 
     Args:
         dataset: Dataset containing 'source' and 'target' columns
-        compute_details: Whether to compute detailed operation statistics
 
     Returns:
         Dictionary containing TER statistics
@@ -42,35 +42,22 @@ def compute_ter_stats(dataset, compute_details: bool = False) -> Dict[str, float
     sources = dataset["source"]
     targets = dataset["target"]
 
-    # Basic TER computation
-    if not compute_details:
-        scores = ter.compute(predictions=targets, references=sources)
-        return {"average_ter": np.mean(scores["score"])}
+    # Compute average token lengths
+    def avg_token_length(texts):
+        lengths = [len(word_tokenize(text)) for text in texts]
+        return np.mean(lengths)
 
-    # Detailed TER computation with operation counts
-    detailed_scores = []
-    operations = {"insertions": [], "deletions": [], "substitutions": [], "shifts": []}
+    avg_source_len = avg_token_length(sources)
+    avg_target_len = avg_token_length(targets)
 
-    for src, tgt in zip(sources, targets):
-        result = ter.compute(predictions=[tgt], references=[src], detailed=True)
-        detailed_scores.append(result["score"])
-
-        if "ops" in result:
-            ops = result["ops"]
-            operations["insertions"].append(ops.get("insertions", 0))
-            operations["deletions"].append(ops.get("deletions", 0))
-            operations["substitutions"].append(ops.get("substitutions", 0))
-            operations["shifts"].append(ops.get("shifts", 0))
-
-    stats = {
-        "average_ter": np.mean(detailed_scores),
-        "average_insertions": np.mean(operations["insertions"]),
-        "average_deletions": np.mean(operations["deletions"]),
-        "average_substitutions": np.mean(operations["substitutions"]),
-        "average_shifts": np.mean(operations["shifts"]),
+    results = ter.compute(predictions=targets, references=sources)
+    return {
+        "average_ter": results["score"],
+        "average_source_length": avg_source_len,
+        "average_target_length": avg_target_len,
+        "size": len(sources),
+        "average_num_edits": results["num_edits"] / len(sources),
     }
-
-    return stats
 
 
 if __name__ == "__main__":
@@ -83,9 +70,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--split", type=str, default="train", help="Dataset split to use"
     )
-    parser.add_argument(
-        "--detailed", action="store_true", help="Compute detailed operation statistics"
-    )
     args = parser.parse_args()
 
     try:
@@ -94,18 +78,15 @@ if __name__ == "__main__":
         print(f"Loaded dataset with {len(dataset)} examples")
 
         # Compute TER statistics
-        stats = compute_ter_stats(dataset, args.detailed)
+        stats = compute_stats(dataset)
 
         # Print results
-        print("\nTER Statistics:")
+        print("\nStatistics:")
         print(f"Average TER score: {stats['average_ter']:.4f}")
-
-        if args.detailed:
-            print("\nDetailed Operation Averages:")
-            print(f"Insertions: {stats['average_insertions']:.4f}")
-            print(f"Deletions: {stats['average_deletions']:.4f}")
-            print(f"Substitutions: {stats['average_substitutions']:.4f}")
-            print(f"Shifts: {stats['average_shifts']:.4f}")
+        print(f"Average source length: {stats['average_source_length']:.2f} tokens")
+        print(f"Average target length: {stats['average_target_length']:.2f} tokens")
+        print(f"Dataset size: {stats['size']} examples")
+        print(f"Average number of edits: {stats['average_num_edits']:.2f} edits")
 
     except Exception as e:
         print(f"Error: {str(e)}")

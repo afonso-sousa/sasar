@@ -86,45 +86,88 @@ class JointModel(PreTrainedModel):
 
                 self.sinkhorn = Sinkhorn()
 
+    def get_tagging_predictions(
+        self,
+        input_ids,
+        attention_mask,
+        token_type_ids=None,
+        edit_tags=None,
+    ):
+        encoder_kwargs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
+        if self.supports_token_type_ids and token_type_ids is not None:
+            encoder_kwargs["token_type_ids"] = token_type_ids
+
+        tagging_outputs = self.encoder(**encoder_kwargs)[0]
+        tag_logits = self.tag_logits_layer(tagging_outputs)
+
+        if not self.use_pointing:
+            return tag_logits, None
+
+        if not self.training:
+            edit_tags = torch.argmax(tag_logits, dim=-1)
+
+        tag_embedding = self.tag_embedding_layer(edit_tags)
+        position_embedding = self.position_embedding_layer(tag_embedding)
+        edit_tagged_sequence_output = self.edit_tagged_sequence_output_layer(
+            torch.cat([tagging_outputs, tag_embedding, position_embedding], dim=-1)
+        )
+
+        query_embeddings = self.query_embeddings_layer(edit_tagged_sequence_output)
+        key_embeddings = self.key_embeddings_layer(edit_tagged_sequence_output)
+        pointing_logits = self._attention_scores(
+            query_embeddings, key_embeddings, attention_mask.float()
+        )
+
+        if hasattr(self, "sinkhorn"):
+            pointing_logits = self.sinkhorn(pointing_logits)
+
+        return tag_logits, pointing_logits
+
+    def get_insertion_predictions(self, input_ids, attention_mask, token_type_ids=None):
+        encoder_kwargs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
+        if self.supports_token_type_ids and token_type_ids is not None:
+            encoder_kwargs["token_type_ids"] = token_type_ids
+
+        insertion_outputs = self.encoder(**encoder_kwargs)[0]
+
+        if hasattr(self, "my_mlm_head"):  # For models like BERT
+            return self.my_mlm_head(insertion_outputs)
+        else:  # For models like ModernBert
+            return self.my_decoder(self.my_head(insertion_outputs))
+
     def forward(
         self,
         tagging_input_ids,
         tagging_attention_mask,
+        insertion_input_ids,
+        insertion_attention_mask,
         tagging_token_type_ids=None,
-        insertion_input_ids=None,
-        insertion_attention_mask=None,
         insertion_token_type_ids=None,
         edit_tags=None,
         pointers=None,
         labels_mask=None,
         masked_lm_ids=None,
     ):
-        # Tagging task
-        encoder_kwargs = {
-            "input_ids": tagging_input_ids,
-            "attention_mask": tagging_attention_mask,
-        }
-        if self.supports_token_type_ids and tagging_token_type_ids is not None:
-            encoder_kwargs["token_type_ids"] = tagging_token_type_ids
-        tagging_outputs = self.encoder(**encoder_kwargs)[0]
 
-        # Tagging Head
-        tag_logits = self.tag_logits_layer(tagging_outputs)
+        tag_logits, pointing_logits = self.get_tagging_predictions(
+            tagging_input_ids,
+            tagging_attention_mask,
+            tagging_token_type_ids,
+            edit_tags,
+        )
 
-        # Insertion task
-        encoder_kwargs = {
-            "input_ids": insertion_input_ids,
-            "attention_mask": insertion_attention_mask,
-        }
-        if self.supports_token_type_ids and insertion_token_type_ids is not None:
-            encoder_kwargs["token_type_ids"] = insertion_token_type_ids
-        insertion_outputs = self.encoder(**encoder_kwargs)[0]
+        mlm_logits = self.get_insertion_predictions(
+            insertion_input_ids, insertion_attention_mask, insertion_token_type_ids
+        )
 
-        # MLM Loss
-        if hasattr(self, "my_mlm_head"):  # For models like BERT
-            mlm_logits = self.my_mlm_head(insertion_outputs)
-        else:  # For models like ModernBert
-            mlm_logits = self.my_decoder(self.my_head(insertion_outputs))
+        if not self.training:
+            return (tag_logits, pointing_logits, mlm_logits)
 
         mlm_loss = None
         if masked_lm_ids is not None:
@@ -141,23 +184,6 @@ class JointModel(PreTrainedModel):
                 if self.training
                 else (tag_logits, mlm_logits)
             )
-
-        if not self.training:
-            edit_tags = torch.argmax(tag_logits, dim=-1)
-
-        tag_embedding = self.tag_embedding_layer(edit_tags)
-        position_embedding = self.position_embedding_layer(tag_embedding)
-        edit_tagged_sequence_output = self.edit_tagged_sequence_output_layer(
-            torch.cat([tagging_outputs, tag_embedding, position_embedding], dim=-1)
-        )
-
-        query_embeddings = self.query_embeddings_layer(edit_tagged_sequence_output)
-        key_embeddings = self.key_embeddings_layer(edit_tagged_sequence_output)
-        pointing_logits = self._attention_scores(
-            query_embeddings, key_embeddings, tagging_attention_mask.float()
-        )
-        if hasattr(self, "sinkhorn"):
-            pointing_logits = self.sinkhorn(pointing_logits)
 
         # Tagging Loss
         tagging_loss = None
@@ -181,11 +207,7 @@ class JointModel(PreTrainedModel):
         elif tagging_loss is not None:
             total_loss = tagging_loss
 
-        return (
-            (total_loss, tag_logits, pointing_logits, mlm_logits)
-            if self.training
-            else (tag_logits, pointing_logits, mlm_logits)
-        )
+        return total_loss, tag_logits, pointing_logits, mlm_logits
 
     def _attention_scores(self, query, key, mask=None):
         scores = torch.matmul(query, key.transpose(1, 2))

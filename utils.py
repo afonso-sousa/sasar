@@ -61,14 +61,15 @@ def build_feed_dict(
         mask_target_id = []
         for idx, token in enumerate(tokens):
             if token == tokenizer.mask_token:
-                mask_target_id.append(
-                    tokenizer.convert_tokens_to_ids(target_tokens[idx])
-                )
+                try:
+                    mask_target_id.append(
+                        tokenizer.convert_tokens_to_ids(target_tokens[idx])
+                    )
+                except:
+                    print("Error converting target token to ID.")
+                    return None
             else:
                 mask_target_id.append(label_pad_token_id)
-
-            if token != tokenizer.mask_token:
-                continue
 
         assert len(mask_target_id) == len(input_ids)
 

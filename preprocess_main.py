@@ -132,12 +132,11 @@ def main(args):
                     amr_target,
                     use_token_type_ids=args.use_token_type_ids,
                 )
-                if example is not None:
+                if example is not None and insertion_example is not None:
                     json_str = json.dumps(example.to_dict())
                     writer.write(json_str.encode("utf-8"))
                     writer.write(b"\n")
                     num_converted += 1
-                if insertion_example is not None:
                     json_str = json.dumps(insertion_example)
                     writer_insertion.write(json_str.encode("utf-8"))
                     writer_insertion.write(b"\n")

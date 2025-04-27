@@ -1,7 +1,7 @@
 #!/bin/bash
 
 model_name="google/flan-t5-small" # "google/flan-t5-base"
-dataset_name="paws"
+dataset_name="raw-data/qqppos" # "paws"
 
 # Training command
 CUDA_VISIBLE_DEVICES=0 python train_t5.py \

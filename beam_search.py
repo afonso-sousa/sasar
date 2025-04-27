@@ -1,4 +1,5 @@
 """Utility functions for running inference with a text editing model."""
+
 import numpy as np
 import scipy.special
 import torch
@@ -22,12 +23,9 @@ def beam_search_single_tagging(
     """Returns the most likely (according to a beam search) sequence of indexes.
 
     Args:
-      predicted_points_logits: Matrix of logits (timesteps x timesteps). Each
-        timestep has logits for every other timestep.
-      good_indexes: A restricted set of indexes which the beam must use. As such
-        the problem becomes find the most likely permutation of these indexes.
-      sep_indexes: A set of indexes for the [SEP] token. This ensure the last
-        token is a [SEP].
+      predicted_points_logits: Matrix of logits (timesteps x timesteps). Each timestep has logits for every other timestep.
+      good_indexes: A restricted set of indexes which the beam must use. As such the problem becomes find the most likely permutation of these indexes.
+      sep_indexes: A set of indexes for the [SEP] token. This ensure the last token is a [SEP].
       beam_size: The size of the beam.
       end_index: The index of the last token (excluding padding)
       max_length: The maximum length of the generation.
@@ -77,17 +75,13 @@ def beam_search_single_tagging(
             top_n_indexes = list(range(len(candidate_scores)))
         else:
             # Get the N most likely sequences. (A full sort is not needed).
-            top_n_indexes = np.argpartition(candidate_scores, beam_size)[
-                :beam_size
-            ]
+            top_n_indexes = np.argpartition(candidate_scores, beam_size)[:beam_size]
 
         new_sequences = []
         new_scores = []
 
         for top_n_index in top_n_indexes:
-            sequence_index, token_index = candidate_sequences_reconstructor[
-                top_n_index
-            ]
+            sequence_index, token_index = candidate_sequences_reconstructor[top_n_index]
             # Reconstruct the sequence.
             new_sequence = sequences[sequence_index] + [token_index]
             new_score = candidate_scores[top_n_index]

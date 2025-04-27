@@ -1,9 +1,9 @@
-dataset="paws"
+dataset="raw-data/qqppos" # "paws"
 split="test"
 output_dir="output"
 model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
 
-include_deleted_spans=false
+include_deleted_spans=true
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
   deleted_spans_flag=""
@@ -13,7 +13,7 @@ else
 fi
 arch_name="joint_sasar_${del_span_suffix}" # sasar_no_del_spans
 
-main_dir=$output_dir/$model_name/$arch_name
+main_dir=$output_dir/$(basename "$dataset")/$model_name/$arch_name
 
 CUDA_VISIBLE_DEVICES=0 python predict_main.py \
   --dataset $dataset \

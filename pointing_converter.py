@@ -63,7 +63,15 @@ class PointingConverter(object):
                 batch_size=2,
             )
 
-    def compute_points(self, source_tokens, target, amr_source=None, amr_target=None):
+    def compute_points(
+        self,
+        source_tokens,
+        target,
+        amr_source=None,
+        amr_target=None,
+        source_word_ids=None,
+        target_word_ids=None,
+    ):
         """Computes points needed for converting the source into the target.
 
         Args:
@@ -89,7 +97,12 @@ class PointingConverter(object):
                 amr_target = amr_graphs[1].split("\n", 1)[1]
 
             points = self._compute_points_from_AMR(
-                source_tokens, target_tokens, amr_source, amr_target
+                source_tokens,
+                target_tokens,
+                amr_source,
+                amr_target,
+                source_word_ids,
+                target_word_ids,
             )
         else:
             points = self._compute_points(source_tokens, target_tokens)
@@ -152,63 +165,108 @@ class PointingConverter(object):
 
         return points
 
+    def reconstruct_word_from_tokens(self, tokens, word_ids, target_word_id):
+        return "".join(
+            token[2:] if token.startswith("##") else token
+            for token, wid in zip(tokens, word_ids)
+            if wid == target_word_id
+        )
+
     def _compute_points_from_AMR(
-        self, source_tokens, target_tokens, amr_source, amr_target
+        self,
+        source_tokens,
+        target_tokens,
+        amr_source,
+        amr_target,
+        source_word_ids,
+        target_word_ids,
     ):
-        breakpoint()
         # Extract important concepts and relations
         source_amr_tokens = self.extract_amr_tokens(amr_source)
         target_amr_tokens = self.extract_amr_tokens(amr_target)
 
         # Find shared concepts
         common_concepts = set(source_amr_tokens) & set(target_amr_tokens)
-        common_concepts = {c for c in common_concepts if not c.startswith(":")}
+        common_concepts = {
+            c.lower() if self._do_lower_case else c
+            for c in common_concepts
+            if not c.startswith(":")
+        }
         common_concepts.add(source_tokens[-1])  # add eos token
 
         # Create a map of source tokens to indices
-        source_tokens_indexes = collections.defaultdict(set)
-        for i, source_token in enumerate(source_tokens):
-            source_tokens_indexes[source_token].add(i)
+        source_words_indexes = collections.defaultdict(list)
+        breakpoint()
+        for i, word_id in enumerate(source_word_ids):
+            if word_id is not None:
+                word = self.reconstruct_word_from_tokens(
+                    source_tokens, source_word_ids, word_id
+                )
+                # Check if this is a continuation of the previous word
+                if (
+                    source_words_indexes.get(word)
+                    and i == source_words_indexes[word][-1][-1] + 1
+                    and source_tokens[i].startswith("##")
+                ):
+                    # Append to the last occurrence's indices
+                    source_words_indexes[word][-1].append(i)
+                else:
+                    # Start a new occurrence
+                    source_words_indexes[word].append([i])
+
+        source_words_indexes["[sep]"].append([i])
 
         # Initialize pointing mechanism
         target_points = {}
         last = 0
         token_buffer = ""
 
-        def find_nearest(indexes, index):
+        def find_nearest(index_groups, index):
             # In the case that two indexes are equally far apart
-            # the lowest index is returned.
-            return min(indexes, key=lambda x: abs(x - index))
+            # the lowest first element index is returned.
+            return min(index_groups, key=lambda group: abs(group[0] - index))
 
-        for target_token in target_tokens[1:]:
+        target_words = []
+        current_word_id = None
+        for i, word_id in enumerate(target_word_ids[1:]):  # skip first token
+            if word_id != current_word_id:
+                # New word found
+                word = self.reconstruct_word_from_tokens(
+                    target_tokens[1:], target_word_ids[1:], word_id
+                )
+                target_words.append(word)
+                current_word_id = word_id
+
+        for target_word in target_words:
             if (
-                source_tokens_indexes[target_token] and target_token in common_concepts
+                source_words_indexes.get(target_word) and target_word in common_concepts
             ) and (
                 not token_buffer
                 or not self._phrase_vocabulary
                 or token_buffer in self._phrase_vocabulary
             ):
-                src_indx = find_nearest(source_tokens_indexes[target_token], last)
+                src_indx = find_nearest(source_words_indexes[target_word], last)
                 # We can only point to a token once.
-                source_tokens_indexes[target_token].remove(src_indx)
-                target_points[last] = pointing.Point(src_indx, token_buffer)
-                last = src_indx
-                token_buffer = ""
+                source_words_indexes[target_word].remove(src_indx)
+                for idx in src_indx:
+                    target_points[last] = pointing.Point(idx, token_buffer)
+                    token_buffer = ""
+                    last = idx
             elif aligned_source_token := self.find_closest_match(
-                target_token, source_amr_tokens, source_tokens_indexes
+                target_word, common_concepts, source_words_indexes
             ):
-                if not source_tokens_indexes[aligned_source_token]:
+                if not source_words_indexes.get(aligned_source_token):
                     breakpoint()
                 src_indx = find_nearest(
-                    source_tokens_indexes[aligned_source_token], last
+                    source_words_indexes[aligned_source_token], last
                 )
-                # We can only point to a token once.
-                source_tokens_indexes[aligned_source_token].remove(src_indx)
-                target_points[last] = pointing.Point(src_indx, token_buffer)
-                last = src_indx
-                token_buffer = ""
+                source_words_indexes[aligned_source_token].remove(src_indx)
+                for idx in src_indx:
+                    target_points[last] = pointing.Point(idx, token_buffer)
+                    token_buffer = ""
+                    last = idx
             else:
-                token_buffer = (token_buffer + " " + target_token).strip()
+                token_buffer = (token_buffer + " " + target_word).strip()
 
         # Ensure buffer is empty
         if token_buffer.strip():
@@ -244,7 +302,7 @@ class PointingConverter(object):
         return new_tokens
 
     def find_closest_match(
-        self, target_token, source_amr_tokens, source_tokens_indexes
+        self, target_token, common_amr_concepts, source_tokens_indexes
     ):
         def get_wordnet_pos(word):
             tag = (
@@ -275,7 +333,7 @@ class PointingConverter(object):
         if (
             target_token == "?"
             and "?" in non_empty_source_tokens
-            and "amr-unknown" in source_amr_tokens
+            and "amr-unknown" in common_amr_concepts
         ):
             return "?"
 
@@ -284,7 +342,7 @@ class PointingConverter(object):
         )
         source_amr_lemmas = [
             token.split("-")[0]
-            for token in source_amr_tokens
+            for token in common_amr_concepts
             # if re.match(r"^[a-zA-Z]+-\d{2}$", token)
             if not token.startswith(":")
         ]

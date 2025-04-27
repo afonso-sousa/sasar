@@ -1,4 +1,4 @@
-dataset="raw-data/qqppos" # "paws"
+dataset="raw-data/qqppos" # "paws" # "raw-data/qqppos" # "paws"
 split="test"
 output_dir="output"
 model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"

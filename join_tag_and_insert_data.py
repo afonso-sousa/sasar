@@ -58,12 +58,13 @@ def join_tagging_and_insertion_data(
 
 # Example usage
 if __name__ == "__main__":
-    input_dir = "input/paws"
+    input_dir = "input/qqppos"  # "input/paws"
     split = "validation"
     with_graph = True
     with_deleted_spans = True
+    tokenizer_name = "bert-base-uncased"
 
-    core_name = f'{split}{"_with_graph" if with_graph else ""}{"_include_del_spans" if with_deleted_spans else "_no_del_spans"}'
+    core_name = f'{split}{"_with_graph" if with_graph else ""}{"_include_del_spans" if with_deleted_spans else "_no_del_spans"}_{tokenizer_name}'
     tagging_data_path = os.path.join(input_dir, f"{core_name}.json")
     insertion_data_path = os.path.join(input_dir, f"{core_name}.json.ins")
     output_path = os.path.join(input_dir, f"{core_name}_joint.jsonl")

@@ -7,11 +7,6 @@ task into two sub-tasks: **tagging** to decide on the subset of input tokens and
 their order in the output text and **insertion** to in-fill the missing tokens in
 the output not present in the input.
 
-## Setup environment
-
-### Download pseudo-semantic graphs
-We use the pseudo-semantic graphs from https://github.com/afonso-sousa/sem_para_gen.git. Get the folder /pseudo_semantic_graph into the project's root folder.
-
 ## Usage Instructions
 
 Running an experiment with SASAR consists of the following steps:

@@ -1,4 +1,4 @@
-dataset_name="paws"
+dataset_name="raw-data/qqppos" # "paws"
 split="test"
 model_name="google/flan-t5-small"
 output_dir="output"

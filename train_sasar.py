@@ -239,6 +239,10 @@ def parse_args():
 def main():
     args = parse_args()
 
+    print(f"Training dataset: {args.train_file}")
+    print(f"Validation dataset: {args.validation_file}")
+    print(f"Training a {args.model_type} model")
+
     accelerator = Accelerator()
 
     logging.basicConfig(
@@ -569,7 +573,7 @@ def main():
                 perplexity = float("inf")
 
             accelerator.print(f"epoch {epoch}:", {"perplexity": perplexity})
-            current_metric = eval_loss
+            current_metric = -perplexity
         elif args.model_type == "tagger":
             for step, batch in enumerate(eval_dataloader):
                 with torch.no_grad():

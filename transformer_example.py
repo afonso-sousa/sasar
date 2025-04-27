@@ -160,6 +160,7 @@ class TransformerExampleBuilder:
             truncation=True,
             return_token_type_ids=use_token_type_ids,
         )
+        source_word_ids = tokenized_input.word_ids()
 
         input_ids = tokenized_input.input_ids
         input_mask = tokenized_input.attention_mask
@@ -186,12 +187,15 @@ class TransformerExampleBuilder:
             padding=False,
             truncation=True,
         )
+        target_word_ids = tokenized_output.word_ids()
         output_tokens = self.tokenizer.convert_ids_to_tokens(tokenized_output.input_ids)
         points = self._converter.compute_points(
             " ".join(input_tokens).split(),
             " ".join(output_tokens),
             amr_source,
             amr_target,
+            source_word_ids,
+            target_word_ids,
         )
 
         if not points:
