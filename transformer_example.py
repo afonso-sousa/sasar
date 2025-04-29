@@ -197,6 +197,7 @@ class TransformerExampleBuilder:
             source_word_ids,
             target_word_ids,
         )
+        breakpoint()
 
         if not points:
             return None, None

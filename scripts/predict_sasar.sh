@@ -1,9 +1,10 @@
-dataset="raw-data/qqppos" # "paws" # "raw-data/qqppos" # "paws"
+dataset="paws" # "paws" # "raw-data/qqppos"
 split="test"
 output_dir="output"
-model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+model_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+lr=1e-4
 
-include_deleted_spans=true
+include_deleted_spans=false
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
   deleted_spans_flag=""
@@ -13,7 +14,7 @@ else
 fi
 arch_name="sasar_${del_span_suffix}" # sasar_no_del_spans
 
-main_dir=$output_dir/$(basename "$dataset")/$model_name/$arch_name
+main_dir=$output_dir/$(basename "$dataset")/$model_name/$lr/$arch_name
 
 CUDA_VISIBLE_DEVICES=0 python predict_main.py \
   --dataset $dataset \
@@ -26,5 +27,4 @@ CUDA_VISIBLE_DEVICES=0 python predict_main.py \
   --use_open_vocab \
   --model_path $main_dir \
   --use_pointing \
-  $deleted_spans_flag \
-  --use_token_type_ids
+  $deleted_spans_flag

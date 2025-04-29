@@ -1,5 +1,5 @@
-dataset_name="paws" # "qqppos"
-model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+dataset_name="paws" # "paws" # "qqppos"
+model_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
 lr=1e-4
 
 include_deleted_spans=false
@@ -28,5 +28,4 @@ CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
     --num_warmup_steps 500 \
     --pointing_weight 1 \
     --model_type inserter \
-    --patience 10 \
-    --use_token_type_ids
+    --patience 10

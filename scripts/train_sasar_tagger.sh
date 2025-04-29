@@ -29,5 +29,4 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --pointing_weight 1 \
     --use_weighted_labels \
     --model_type tagger \
-    --patience 10 \
-    --use_token_type_ids
+    --patience 10

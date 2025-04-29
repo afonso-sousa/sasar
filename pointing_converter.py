@@ -12,15 +12,39 @@ import amr_utils
 import pointing
 
 
-def detokenize(tokens):
+def detect_tokenizer_style(tokens):
+    """
+    Detect tokenizer style based on token prefixes.
+    Only supports BERT and ModernBERT.
+    """
+    if any(token.startswith("ġ") for token in tokens):
+        return "modernbert"
+    else:
+        return "bert"
+
+
+def detokenize(tokens, tokenizer_style):
     detok = []
     for token in tokens:
-        if token.startswith("##"):  ## Only for BERT tokenization
-            detok[-1] += token[2:]  # Merge subword with previous token
-        elif token in string.punctuation or token.startswith("'"):
-            detok.append(token)  # Attach punctuation without space
+        if tokenizer_style == "bert":
+            if token.startswith("##"):
+                detok[-1] += token[2:]  # Merge BERT subword
+            elif token in string.punctuation or token.startswith("'"):
+                detok.append(token)  # Attach punctuation without space
+            else:
+                detok.append(" " + token)
+        elif tokenizer_style == "modernbert":
+            if token.startswith("ġ"):
+                token = token[1:]  # Remove 'ġ'
+                detok.append(" " + token)
+            elif token in string.punctuation or token.startswith("'"):
+                detok.append(token)  # Attach punctuation without space
+            else:
+                detok.append(token)  # Continuation subword, no space
         else:
-            detok.append(" " + token)  # Add space before normal words
+            raise ValueError(
+                f"Unknown tokenizer style: {tokenizer_style}. Supported styles are 'bert' and 'modernbert'."
+            )
     return "".join(detok).strip()
 
 
@@ -36,8 +60,7 @@ class PointingConverter(object):
         """Initializes an instance of PointingConverter.
 
         Args:
-          phrase_vocabulary: Iterable of phrase vocabulary items (strings), if empty
-            we assume an unlimited vocabulary.
+          phrase_vocabulary: Iterable of phrase vocabulary items (strings), if empty we assume an unlimited vocabulary.
           do_lower_case: Should the phrase vocabulary be lower cased.
         """
         self._with_graph = with_graph
@@ -88,10 +111,15 @@ class PointingConverter(object):
 
         if self._with_graph:
             source_text = " ".join(source_tokens[1:-1])
+
+            tokenizer_style = detect_tokenizer_style(source_tokens)
+
             if not amr_source or not amr_target:
                 # Generate AMR graphs for source and target texts
-                source_text = detokenize(source_tokens[1:-1])  # Exclude special tokens
-                target_text = detokenize(target_tokens[1:-1])
+                source_text = detokenize(
+                    source_tokens[1:-1], tokenizer_style
+                )  # Exclude special tokens
+                target_text = detokenize(target_tokens[1:-1], tokenizer_style)
                 amr_graphs = self.stog.parse_sents([source_text, target_text])
                 amr_source = amr_graphs[0].split("\n", 1)[1]
                 amr_target = amr_graphs[1].split("\n", 1)[1]
@@ -103,6 +131,7 @@ class PointingConverter(object):
                 amr_target,
                 source_word_ids,
                 target_word_ids,
+                tokenizer_style,
             )
         else:
             points = self._compute_points(source_tokens, target_tokens)
@@ -166,8 +195,15 @@ class PointingConverter(object):
         return points
 
     def reconstruct_word_from_tokens(self, tokens, word_ids, target_word_id):
+        def clean_token(token):
+            if token.startswith("##"):
+                return token[2:]
+            if token.startswith("ġ"):  # ModernBert (SentencePiece-style)
+                return token[1:]
+            return token
+
         return "".join(
-            token[2:] if token.startswith("##") else token
+            clean_token(token)
             for token, wid in zip(tokens, word_ids)
             if wid == target_word_id
         )
@@ -180,6 +216,7 @@ class PointingConverter(object):
         amr_target,
         source_word_ids,
         target_word_ids,
+        tokenizer_style,
     ):
         # Extract important concepts and relations
         source_amr_tokens = self.extract_amr_tokens(amr_source)
@@ -196,7 +233,15 @@ class PointingConverter(object):
 
         # Create a map of source tokens to indices
         source_words_indexes = collections.defaultdict(list)
-        breakpoint()
+
+        def is_start_of_word(token, tokenizer_style):
+            if tokenizer_style == "bert":
+                return not token.startswith("##")
+            elif tokenizer_style == "modernbert":
+                return token.startswith("ġ")
+            else:
+                raise ValueError(f"Unknown tokenizer style: {tokenizer_style}")
+
         for i, word_id in enumerate(source_word_ids):
             if word_id is not None:
                 word = self.reconstruct_word_from_tokens(
@@ -206,9 +251,9 @@ class PointingConverter(object):
                 if (
                     source_words_indexes.get(word)
                     and i == source_words_indexes[word][-1][-1] + 1
-                    and source_tokens[i].startswith("##")
+                    and not is_start_of_word(source_tokens[i], tokenizer_style)
                 ):
-                    # Append to the last occurrence's indices
+                    # Continuation of previous word
                     source_words_indexes[word][-1].append(i)
                 else:
                     # Start a new occurrence
