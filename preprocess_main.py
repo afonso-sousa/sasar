@@ -125,22 +125,31 @@ def main(args):
                 if i % 10000 == 0:
                     print(f"{i} examples processed, {num_converted} converted.")
 
-                example, insertion_example = builder.build_transformer_example(
+                example, insertion_examples = builder.build_transformer_example(
                     sources,
                     target,
                     amr_source,
                     amr_target,
                     use_token_type_ids=args.use_token_type_ids,
+                    enhance_with_paraphrases=args.enhance_with_paraphrases,
                 )
-                if example is not None and insertion_example is not None:
+                if example is not None and insertion_examples is not None:
                     json_str = json.dumps(example.to_dict())
                     writer.write(json_str.encode("utf-8"))
                     writer.write(b"\n")
                     num_converted += 1
-                    json_str = json.dumps(insertion_example)
-                    writer_insertion.write(json_str.encode("utf-8"))
-                    writer_insertion.write(b"\n")
-                    num_converted_insertion += 1
+
+                    if isinstance(insertion_examples, dict):
+                        insertion_examples = [insertion_examples]
+
+                    if len(insertion_examples) == 0:
+                        breakpoint()
+
+                    for insertion_example in insertion_examples:
+                        json_str = json.dumps(insertion_example)
+                        writer_insertion.write(json_str.encode("utf-8"))
+                        writer_insertion.write(b"\n")
+                        num_converted_insertion += 1
 
     print(
         f"Done. {num_converted} tagging and {num_converted_insertion} insertion examples."
@@ -240,6 +249,11 @@ if __name__ == "__main__":
         "--use_token_type_ids",
         action="store_true",
         help="Whether to use token_type_ids in the dataset",
+    )
+    parser.add_argument(
+        "--enhance_with_paraphrases",
+        action="store_true",
+        help="Whether to enhance examples with WordNet paraphrases for unmapped phrases.",
     )
 
     args = parser.parse_args()

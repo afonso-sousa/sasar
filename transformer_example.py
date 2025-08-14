@@ -1,6 +1,9 @@
 import collections
 
+from nltk.corpus import wordnet as wn
 from transformers import AutoTokenizer
+
+import utils
 
 
 class TransformerExample:
@@ -130,6 +133,7 @@ class TransformerExampleBuilder:
         amr_target=None,
         is_test_time=False,
         use_token_type_ids=False,
+        enhance_with_paraphrases=False,
     ):
         """Constructs a Transformer tagging and insertion examples.
 
@@ -197,7 +201,6 @@ class TransformerExampleBuilder:
             source_word_ids,
             target_word_ids,
         )
-        breakpoint()
 
         if not points:
             return None, None
@@ -245,10 +248,198 @@ class TransformerExampleBuilder:
             labels_mask=labels_mask,
         )
 
-        insertion_example = None
+        insertion_examples = []
         if self._converter_insertion is not None:
-            insertion_example = self._converter_insertion.create_insertion_example(
+            base_insertion_example = self._converter_insertion.create_insertion_example(
                 input_tokens, labels, point_indexes, output_tokens
             )
+            if base_insertion_example:
+                insertion_examples.append(base_insertion_example)
 
-        return example, insertion_example
+                if enhance_with_paraphrases:
+                    for point in points:
+                        if point.added_phrase:
+                            paraphrases = self._generate_wordnet_paraphrases(
+                                point.added_phrase
+                            )
+
+                            for para_phrase in paraphrases:
+                                # Tokenize both versions
+                                original_tokens = self.tokenizer.tokenize(
+                                    point.added_phrase
+                                )
+                                para_tokens = self.tokenizer.tokenize(para_phrase)
+
+                                # Only proceed if token counts match exactly
+                                if len(original_tokens) != len(para_tokens):
+                                    continue
+
+                                # Create modified target with paraphrase
+                                modified_target = output_tokens.copy()
+
+                                # Find all occurrences of original phrase
+                                occurrences = []
+                                for i in range(
+                                    len(modified_target) - len(original_tokens) + 1
+                                ):
+                                    if (
+                                        modified_target[i : i + len(original_tokens)]
+                                        == original_tokens
+                                    ):
+                                        occurrences.append(i)
+
+                                # Only replace if exactly one occurrence found
+                                if len(occurrences) == 1:
+                                    start = occurrences[0]
+                                    modified_target[
+                                        start : start + len(para_tokens)
+                                    ] = para_tokens
+
+                                    # Recreate the full insertion example with new target
+                                    para_example = self._converter_insertion.create_insertion_example(
+                                        input_tokens,
+                                        labels,
+                                        point_indexes,
+                                        modified_target,
+                                    )
+
+                                    if para_example:
+                                        insertion_examples.append(para_example)
+
+        return example, (
+            None
+            if not insertion_examples
+            else (
+                insertion_examples[0]
+                if not enhance_with_paraphrases
+                else insertion_examples
+            )
+        )
+
+    def _generate_wordnet_paraphrases(self, phrase):
+        """Generate and filter paraphrases using WordNet."""
+        words = phrase.split()
+        paraphrases = set()
+
+        # Skip very short phrases or those that are likely not meaningful
+        if len(words) == 0 or (len(words) == 1 and len(words[0]) <= 2):
+            return []
+
+        # Skip phrases that look like numbers, symbols, or special cases
+        if any(self._should_skip_word(word) for word in words):
+            return []
+
+        # Try to replace each word with synonyms
+        for i, word in enumerate(words):
+            synonyms = set()
+            for syn in wn.synsets(word):
+                for lemma in syn.lemmas():
+                    if lemma.name().lower() != word.lower():
+                        synonym = lemma.name().replace("_", " ").lower()
+                        if self._is_good_synonym(word, synonym):
+                            synonyms.add(synonym)
+
+            # Generate new phrases with each synonym
+            for synonym in synonyms:
+                new_phrase = words[:i] + [synonym] + words[i + 1 :]
+                paraphrases.add(" ".join(new_phrase))
+
+        return self._filter_paraphrases(phrase, list(paraphrases))
+
+    def _should_skip_word(self, word):
+        """Determine if a word should be skipped for paraphrase generation."""
+        # Skip numbers
+        if word.replace("-", "").replace(".", "").isdigit():
+            return True
+
+        # Skip Roman numerals
+        if self._is_roman_numeral(word):
+            return True
+
+        # Skip very short words (except common short words)
+        if len(word) <= 2 and word.lower() not in {"in", "on", "at", "to", "of", "by"}:
+            return True
+
+        # Skip symbols and special characters
+        if any(c in word for c in {"--", "...", "(", ")", "[", "]"}):
+            return True
+
+        return False
+
+    def _is_roman_numeral(self, word):
+        """Check if a word is a Roman numeral."""
+        roman_numerals = {
+            "i",
+            "ii",
+            "iii",
+            "iv",
+            "v",
+            "vi",
+            "vii",
+            "viii",
+            "ix",
+            "x",
+            "xi",
+            "xii",
+            "xiii",
+            "xiv",
+            "xv",
+            "xvi",
+            "xvii",
+            "xviii",
+            "xix",
+            "xx",
+            "l",
+            "c",
+            "d",
+            "m",
+        }
+        return word.lower() in roman_numerals
+
+    def _is_good_synonym(self, original, synonym):
+        """Check if a synonym is a good replacement."""
+        # Don't replace with Roman numerals
+        if self._is_roman_numeral(synonym):
+            return False
+
+        # Don't replace with completely different length words
+        if abs(len(original) - len(synonym)) > 3 and len(original) > 3:
+            return False
+
+        # Don't replace with words that are too different in structure
+        if "-" in original and "-" not in synonym:
+            return False
+        if "." in original and "." not in synonym:
+            return False
+
+        # Skip synonyms that are too technical or obscure
+        if any(x in synonym for x in {"_", "(a)", "(b)", "(n)", "(v)"}):
+            return False
+
+        return True
+
+    def _filter_paraphrases(self, original, paraphrases):
+        """Apply final filters to the generated paraphrases."""
+        filtered = []
+        original_lower = original.lower()
+
+        for para in paraphrases:
+            para_lower = para.lower()
+
+            # Skip identical paraphrases (after case normalization)
+            if para_lower == original_lower:
+                continue
+
+            # Skip paraphrases that are too long or too short
+            if len(para.split()) != len(original.split()):
+                continue
+
+            # Skip paraphrases that change the first character case
+            if len(para) > 0 and len(original) > 0:
+                if para[0].isupper() != original[0].isupper():
+                    continue
+
+            filtered.append(para)
+
+        # Return only top 3 best paraphrases
+        return filtered[:3]

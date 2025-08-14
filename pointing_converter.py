@@ -1,11 +1,10 @@
 import collections
-import json
-import os
 import string
 
 import amrlib
 import penman
 from nltk.corpus import wordnet
+from transformers import AutoTokenizer
 from word2number import w2n
 
 import amr_utils
@@ -123,6 +122,26 @@ class PointingConverter(object):
                 amr_graphs = self.stog.parse_sents([source_text, target_text])
                 amr_source = amr_graphs[0].split("\n", 1)[1]
                 amr_target = amr_graphs[1].split("\n", 1)[1]
+
+                if source_word_ids is None or target_word_ids is None:
+                    if tokenizer_style == "bert":
+                        tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+                    elif tokenizer_style == "modernbert":
+                        tokenizer = AutoTokenizer.from_pretrained(
+                            "answerdotai/ModernBERT-base"
+                        )
+                    else:
+                        raise ValueError(
+                            f"Unknown tokenizer style: {tokenizer_style}. Supported styles are 'bert' and 'modernbert'."
+                        )
+                    encoding_source = tokenizer(
+                        source_text, return_offsets_mapping=True
+                    )
+                    encoding_target = tokenizer(
+                        target_text, return_offsets_mapping=True
+                    )
+                    source_word_ids = encoding_source.word_ids()
+                    target_word_ids = encoding_target.word_ids()
 
             points = self._compute_points_from_AMR(
                 source_tokens,
@@ -247,17 +266,20 @@ class PointingConverter(object):
                 word = self.reconstruct_word_from_tokens(
                     source_tokens, source_word_ids, word_id
                 )
-                # Check if this is a continuation of the previous word
-                if (
-                    source_words_indexes.get(word)
-                    and i == source_words_indexes[word][-1][-1] + 1
-                    and not is_start_of_word(source_tokens[i], tokenizer_style)
-                ):
-                    # Continuation of previous word
-                    source_words_indexes[word][-1].append(i)
-                else:
-                    # Start a new occurrence
-                    source_words_indexes[word].append([i])
+                try:
+                    # Check if this is a continuation of the previous word
+                    if (
+                        source_words_indexes.get(word)
+                        and i == source_words_indexes[word][-1][-1] + 1
+                        and not is_start_of_word(source_tokens[i], tokenizer_style)
+                    ):
+                        # Continuation of previous word
+                        source_words_indexes[word][-1].append(i)
+                    else:
+                        # Start a new occurrence
+                        source_words_indexes[word].append([i])
+                except:
+                    return []
 
         source_words_indexes["[sep]"].append([i])
 
@@ -312,6 +334,8 @@ class PointingConverter(object):
                     last = idx
             else:
                 token_buffer = (token_buffer + " " + target_word).strip()
+
+        breakpoint()
 
         # Ensure buffer is empty
         if token_buffer.strip():

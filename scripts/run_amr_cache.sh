@@ -1,7 +1,7 @@
 #!/bin/bash
 
-DATASET="raw-data/qqppos"
-SPLIT="train" # validation
+DATASET="paws" # "raw-data/qqppos"
+SPLIT="test" # "train" # validation
 OUTPUT_FILE="$(basename "$DATASET")_AMR_${SPLIT}.jsonl"
 BATCH_SIZE=64
 

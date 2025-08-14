@@ -1,10 +1,10 @@
-dataset="paws" # "paws" # "raw-data/qqppos"
+dataset="raw-data/qqppos" # "paws" # "raw-data/qqppos"
 split="test"
 output_dir="output"
 model_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
-lr=1e-4
+lr=1e-5
 
-include_deleted_spans=false
+include_deleted_spans=true
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
   deleted_spans_flag=""

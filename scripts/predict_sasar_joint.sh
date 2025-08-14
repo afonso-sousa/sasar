@@ -1,9 +1,9 @@
-dataset="raw-data/qqppos" # "paws"
+dataset="paws" # "raw-data/qqppos" # "paws"
 split="test"
 output_dir="output"
-model_name="bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+model_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
 
-include_deleted_spans=true
+include_deleted_spans=false
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
   deleted_spans_flag=""
@@ -27,4 +27,5 @@ CUDA_VISIBLE_DEVICES=0 python predict_main.py \
   --model_path $main_dir \
   --use_pointing \
   --use_token_type_ids \
-  $deleted_spans_flag
+  $deleted_spans_flag \
+  --limit_masks

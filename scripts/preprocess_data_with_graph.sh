@@ -1,13 +1,20 @@
 dataset="paws" # "raw-data/qqppos" # paws
 split="train"
 include_deleted_spans=false
+enhance_with_paraphrases=false
 
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
   deleted_spans_flag="--include_deleted_spans"
 else
   del_span_suffix="no_del_spans"
-  deleted_spans_flag=""  # Don't include the flag if false
+  deleted_spans_flag=""
+fi
+
+if [ "$enhance_with_paraphrases" = true ]; then
+  para_enhance_flag="--enhance_with_paraphrases"
+else
+  para_enhance_flag=""
 fi
 
 tokenizer_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
@@ -27,4 +34,5 @@ python preprocess_main.py \
   --with_graph \
   --amr_cache_file $amr_cache_file \
   $deleted_spans_flag \
-  --use_token_type_ids
+  --use_token_type_ids \
+  $para_enhance_flag

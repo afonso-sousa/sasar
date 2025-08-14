@@ -1,8 +1,8 @@
-dataset_name="paws" # "paws" # "qqppos"
+dataset_name="qqppos" # "paws" # "qqppos"
 model_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
-lr=1e-4
+lr=1e-5
 
-include_deleted_spans=false
+include_deleted_spans=true
 
 if [ "$include_deleted_spans" = true ]; then
   del_span_suffix="include_del_spans"
@@ -19,7 +19,7 @@ CUDA_VISIBLE_DEVICES=1 python train_sasar.py \
     --model_name_or_path $model_name \
     --label_map_file input/label_map.json \
     --max_seq_length 256 \
-    --num_train_epochs 500 \
+    --num_train_epochs 100 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 32 \
     --use_pointing \

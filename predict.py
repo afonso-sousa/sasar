@@ -13,7 +13,6 @@ import constants
 import insertion_converter
 import preprocess
 import utils
-from data_collator import DataCollatorForJointModel
 from joint_model import JointModel, JointModelConfig
 from my_tagger import MyTagger, MyTaggerConfig
 
