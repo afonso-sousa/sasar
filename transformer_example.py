@@ -3,8 +3,6 @@ import collections
 from nltk.corpus import wordnet as wn
 from transformers import AutoTokenizer
 
-import utils
-
 
 class TransformerExample:
     """Class for training and inference examples for Transformers.

@@ -11,6 +11,33 @@ import utils
 _INSERTION_FILENAME_SUFFIX = ".ins"
 
 
+def perturb_text(text, delete_prob=0.1, shuffle_sentences=True):
+    """
+    Introduce artificial edits to the text for pretraining.
+
+    Args:
+        text: str, original text
+        delete_prob: probability to drop a token
+        shuffle_sentences: whether to shuffle sentences
+    Returns:
+        perturbed_text: str
+    """
+    # Token-level deletion
+    tokens = text.split()
+    tokens = [t for t in tokens if random.random() > delete_prob]
+
+    # Sentence-level shuffle
+    if shuffle_sentences:
+        # split by period, shuffle, join
+        sentences = " ".join(tokens).split(". ")
+        random.shuffle(sentences)
+        perturbed_text = ". ".join(sentences)
+    else:
+        perturbed_text = " ".join(tokens)
+
+    return perturbed_text
+
+
 def _write_example_count(count, example_path):
     """Saves the number of converted examples to a file.
 
@@ -83,6 +110,13 @@ def main(args):
             args.dataset, data_files={args.split: f"{args.split}.csv.gz"}
         )
         dataset = dataset[args.split]
+    elif args.dataset == "c4":
+        # Stream the dataset without loading fully into memory
+        dataset = load_dataset(
+            "c4", "en", split=args.split, trust_remote_code=True, streaming=True
+        )
+        if args.max_input_lines:
+            dataset = dataset.take(args.max_input_lines)
     else:
         dataset = load_dataset(args.dataset, split=args.split)
 
@@ -105,7 +139,7 @@ def main(args):
         dataset = dataset.map(add_amr_info)
 
     indexes = None
-    if args.max_input_lines:
+    if args.max_input_lines and args.dataset != "c4":
         input_len = sum(1 for _ in utils.yield_inputs(dataset))
         max_len = min(input_len, args.max_input_lines)
         indexes = set(random.sample(range(input_len), max_len))
@@ -125,6 +159,11 @@ def main(args):
                 if i % 10000 == 0:
                     print(f"{i} examples processed, {num_converted} converted.")
 
+                if args.dataset == "c4":
+                    sources = perturb_text(
+                        sources[0], delete_prob=0.2, shuffle_sentences=True
+                    )
+                    sources = [sources]
                 example, insertion_examples = builder.build_transformer_example(
                     sources,
                     target,
@@ -220,11 +259,6 @@ if __name__ == "__main__":
         "--special_glue_string_for_joining_sources",
         type=str,
         help="Special glue string for joining sources.",
-    )
-    parser.add_argument(
-        "--max_mask",
-        type=int,
-        help="Maximum number of masked tokens in the sequence.",
     )
     parser.add_argument(
         "--insert_after_token", type=str, help="Token after which to insert."

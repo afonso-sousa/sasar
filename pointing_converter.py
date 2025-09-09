@@ -335,8 +335,6 @@ class PointingConverter(object):
             else:
                 token_buffer = (token_buffer + " " + target_word).strip()
 
-        breakpoint()
-
         # Ensure buffer is empty
         if token_buffer.strip():
             return []

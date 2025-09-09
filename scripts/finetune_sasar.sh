@@ -1,6 +1,8 @@
-dataset_name="c4"
+dataset_name="paws" # "paws" # "qqppos"
 
 model_name="answerdotai/ModernBERT-base" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+
+pretrained_model_path="output/c4/answerdotai/ModernBERT-base/pretrained_sasar"
 
 include_deleted_spans=false
 
@@ -10,15 +12,16 @@ else
   del_span_suffix="no_del_spans"
 fi
 
-arch_name="pretrained_sasar"
+arch_name="joint_sasar_${del_span_suffix}"
 
 CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
-    --output_dir output/$dataset_name/$model_name/$arch_name \
-    --train_file input/$dataset_name/train_${model_name}_joint.jsonl \
-    --model_name_or_path $model_name \
+    --output_dir $pretrained_model_path \
+    --train_file input/$dataset_name/train_with_graph_${del_span_suffix}_${model_name}_joint.jsonl \
+    --validation_file input/$dataset_name/validation_with_graph_${del_span_suffix}_${model_name}_joint.jsonl \
+    --model_name_or_path $pretrained_model_path \
     --label_map_file input/label_map.json \
     --max_seq_length 256 \
-    --num_train_epochs 1 \
+    --num_train_epochs 100 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 32 \
     --use_pointing \
@@ -28,4 +31,5 @@ CUDA_VISIBLE_DEVICES=0 python train_sasar.py \
     --pointing_weight 1 \
     --use_weighted_labels \
     --model_type joint \
-    --patience 10
+    --patience 10 \
+    --from_pretrained

@@ -7,6 +7,12 @@ task into two sub-tasks: **tagging** to decide on the subset of input tokens and
 their order in the output text and **insertion** to in-fill the missing tokens in
 the output not present in the input.
 
+```
+⚠️ Disclaimer
+SASAR was designed with paraphrase generation in mind. In this task, a large portion of the output tokens are often identical to the input text, which makes a tagging + insertion formulation especially appealing.
+In our experiments, however, SASAR did not consistently surpass strong baselines. Still, the decomposition into “reuse what’s already in the input” + “generate only what’s new” may inspire further work, and the code here can serve as a foundation for others exploring edit-based approaches to paraphrasing.
+```
+
 ## Usage Instructions
 
 Running an experiment with SASAR consists of the following steps:

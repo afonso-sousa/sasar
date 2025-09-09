@@ -36,16 +36,23 @@ def join_tagging_and_insertion_data(
             # Tagging task fields
             "tagging_input_ids": tagging_example["input_ids"],
             "tagging_input_mask": tagging_example["input_mask"],
-            "tagging_token_type_ids": tagging_example["token_type_ids"],
             "point_indexes": tagging_example["point_indexes"],
             "labels": tagging_example["labels"],
             "labels_mask": tagging_example["labels_mask"],
             # Insertion task fields
             "insertion_input_ids": insertion_example["input_ids"],
             "insertion_input_mask": insertion_example["input_mask"],
-            "insertion_token_type_ids": insertion_example["token_type_ids"],
             "masked_lm_ids": insertion_example["masked_lm_ids"],
         }
+
+        # Add token_type_ids only if present
+        if tagging_example.get("token_type_ids") is not None:
+            joint_example["tagging_token_type_ids"] = tagging_example["token_type_ids"]
+
+        if insertion_example.get("token_type_ids") is not None:
+            joint_example["insertion_token_type_ids"] = insertion_example[
+                "token_type_ids"
+            ]
         joint_data.append(joint_example)
 
     # Save the joined dataset
@@ -58,13 +65,13 @@ def join_tagging_and_insertion_data(
 
 # Example usage
 if __name__ == "__main__":
-    input_dir = "input/qqppos"  # "input/paws"
-    split = "validation"
-    with_graph = True
-    with_deleted_spans = True
-    tokenizer_name = "bert-base-uncased"
+    input_dir = "input/c4"  # "input/qqppos"  # "input/paws"
+    split = "train"
+    with_graph = False
+    with_deleted_spans = False
+    tokenizer_name = "answerdotai/ModernBERT-base"  # "bert-base-uncased"
 
-    core_name = f'{split}{"_with_graph" if with_graph else ""}{"_include_del_spans" if with_deleted_spans else "_no_del_spans"}_{tokenizer_name}'
+    core_name = f'{split}{"_with_graph" if with_graph else ""}{"" if input_dir == "input/c4" else "_include_del_spans" if with_deleted_spans else "_no_del_spans"}_{tokenizer_name}'
     tagging_data_path = os.path.join(input_dir, f"{core_name}.json")
     insertion_data_path = os.path.join(input_dir, f"{core_name}.json.ins")
     output_path = os.path.join(input_dir, f"{core_name}_joint.jsonl")

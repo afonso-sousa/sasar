@@ -1,6 +1,6 @@
-dataset="paws" # "raw-data/qqppos" # paws
+dataset="c4" # "raw-data/qqppos" # paws
 split="train"
-tokenizer_name="google/flan-t5-base" # "bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
+tokenizer_name="answerdotai/ModernBERT-base" # "bert-base-uncased" # "answerdotai/ModernBERT-base" # "bert-base-uncased"
 output_file="input/$(basename "$dataset")/${split}_${tokenizer_name}.json"
 label_map_file="input/label_map.json"
 
@@ -13,4 +13,4 @@ python preprocess_main.py \
   --use_open_vocab \
   --max_seq_length 256 \
   --use_pointing \
-  --use_token_type_ids
+  --max_input_lines 100000

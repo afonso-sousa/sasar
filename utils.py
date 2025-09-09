@@ -2,7 +2,7 @@
 
 import json
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, IterableDataset, load_dataset
 
 import constants
 
@@ -100,7 +100,7 @@ def yield_inputs(dataset_or_name, split="train", source_key=None, target_key=Non
             dataset = dataset.rename_column("sentence2", "target")
         else:
             dataset = load_dataset(dataset_or_name, split=split)
-    elif isinstance(dataset_or_name, Dataset):
+    elif isinstance(dataset_or_name, (Dataset, IterableDataset)):
         dataset = dataset_or_name
     else:
         raise ValueError(
@@ -108,14 +108,26 @@ def yield_inputs(dataset_or_name, split="train", source_key=None, target_key=Non
         )
 
     for item in dataset:
-        source_texts = item.get(source_key, item.get("source"))
-        target_text = item.get(target_key, item.get("target"))
-        amr_source = item.get("amr_source")  # Optional AMR source
-        amr_target = item.get("amr_target")
-        if source_texts is not None and target_text is not None:
-            if isinstance(source_texts, str):
-                source_texts = [source_texts]
-            yield source_texts, target_text, amr_source, amr_target
+        if "text" not in item:
+            source_texts = item.get(source_key, item.get("source"))
+            target_text = item.get(target_key, item.get("target"))
+            amr_source = item.get("amr_source")  # Optional AMR source
+            amr_target = item.get("amr_target")
+            if source_texts is not None and target_text is not None:
+                if isinstance(source_texts, str):
+                    source_texts = [source_texts]
+                yield source_texts, target_text, amr_source, amr_target
+        else:
+            # For pretraining, we assume the text is in the "text" field and duplicate it as both source and target.
+            text = item.get("text")
+            if text is None:
+                continue
+
+            # For pretraining, we duplicate text as source and target
+            source_texts = [text]
+            target_text = text
+
+            yield source_texts, target_text, None, None
 
 
 def read_label_map(path, use_str_keys=False):

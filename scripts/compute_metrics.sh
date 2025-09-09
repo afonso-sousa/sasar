@@ -20,6 +20,7 @@ file_path="output/paws/answerdotai/ModernBERT-base/joint_sasar_no_del_spans/pred
 # file_path="output/qqppos/answerdotai/ModernBERT-base/joint_sasar_include_del_spans/pred.tsv"
 
 # file_path="output/qqppos/google/flan-t5-small/pred.tsv"
+file_path="output/c4/answerdotai/ModernBERT-base/pretrained_sasar/pred.tsv"
 
 metric="metrics/my_metric"
 

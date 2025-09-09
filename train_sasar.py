@@ -26,6 +26,7 @@ from transformers import (
 import my_models
 import utils
 from data_collator import DataCollatorForJointModel, DataCollatorForTagging
+from joint_model import JointModel
 
 logger = get_logger(__name__)
 
@@ -80,9 +81,6 @@ class TextEditingDataset(Dataset):
                 "tagging_input_mask": torch.tensor(
                     data["tagging_input_mask"], dtype=torch.long
                 ),
-                "tagging_token_type_ids": torch.tensor(
-                    data["tagging_token_type_ids"], dtype=torch.long
-                ),
                 "pointers": torch.tensor(data["point_indexes"], dtype=torch.long),
                 "edit_tags": torch.tensor(data["labels"], dtype=torch.long),
                 "labels_mask": torch.tensor(data["labels_mask"], dtype=torch.float32),
@@ -93,11 +91,15 @@ class TextEditingDataset(Dataset):
                 "insertion_attention_mask": torch.tensor(
                     data["insertion_input_mask"], dtype=torch.long
                 ),
-                "insertion_token_type_ids": torch.tensor(
-                    data["insertion_token_type_ids"], dtype=torch.long
-                ),
                 "masked_lm_ids": torch.tensor(data["masked_lm_ids"], dtype=torch.long),
             }
+            if self.use_token_type_ids:
+                item["tagging_token_type_ids"] = (
+                    torch.tensor(data["tagging_token_type_ids"], dtype=torch.long),
+                )
+                item["insertion_token_type_ids"] = (
+                    torch.tensor(data["insertion_token_type_ids"], dtype=torch.long),
+                )
 
         return item
 
@@ -182,6 +184,11 @@ def parse_args():
         help="Where to store the final model.",
     )
     parser.add_argument(
+        "--from_pretrained",
+        action="store_true",
+        help="Indication whether to use a pretrained model.",
+    )
+    parser.add_argument(
         "--return_entity_level_metrics",
         action="store_true",
         help="Indication whether entity level metrics are to be returner.",
@@ -240,7 +247,8 @@ def main():
     args = parse_args()
 
     print(f"Training dataset: {args.train_file}")
-    print(f"Validation dataset: {args.validation_file}")
+    if args.validation_file is not None:
+        print(f"Validation dataset: {args.validation_file}")
     print(f"Training a {args.model_type} model")
 
     accelerator = Accelerator()
@@ -265,7 +273,11 @@ def main():
     label_list = utils.read_label_map(args.label_map_file, use_str_keys=True)
     label_list = {v: k for k, v in label_list.items()}
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+    parts = args.model_name_or_path.split(os.sep)
+    if "c4" in parts:
+        tokenizer = AutoTokenizer.from_pretrained(os.path.join(*parts[2:4]))
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 
     if args.model_type == "inserter":
         config = AutoConfig.from_pretrained(args.model_name_or_path)
@@ -281,14 +293,17 @@ def main():
             vocab_size=len(tokenizer),
         )
     elif args.model_type == "joint":
-        model = my_models.get_joint_model(
-            args.model_name_or_path,
-            args.max_seq_length,
-            pointing_weight=args.pointing_weight,
-            use_pointing=args.use_pointing,
-            num_classes=len(label_list),
-            vocab_size=len(tokenizer),
-        )
+        if args.from_pretrained:
+            model = JointModel.from_pretrained(args.model_name_or_path)
+        else:
+            model = my_models.get_joint_model(
+                args.model_name_or_path,
+                args.max_seq_length,
+                pointing_weight=args.pointing_weight,
+                use_pointing=args.use_pointing,
+                num_classes=len(label_list),
+                vocab_size=len(tokenizer),
+            )
     else:
         raise ValueError(f"Model type {args.model_type} not recognized.")
 
@@ -334,6 +349,8 @@ def main():
                     8 if accelerator.mixed_precision == "fp16" else None
                 ),
             )
+        else:
+            raise ValueError(f"Model type {args.model_type} not recognized.")
 
         train_dataloader = DataLoader(
             train_dataset,
@@ -341,11 +358,12 @@ def main():
             collate_fn=data_collator,
             batch_size=args.per_device_train_batch_size,
         )
-        eval_dataloader = DataLoader(
-            validation_dataset,
-            collate_fn=data_collator,
-            batch_size=args.per_device_eval_batch_size,
-        )
+        if args.validation_file is not None:
+            eval_dataloader = DataLoader(
+                validation_dataset,
+                collate_fn=data_collator,
+                batch_size=args.per_device_eval_batch_size,
+            )
     accelerator.wait_for_everyone()
 
     # Optimizer
@@ -388,15 +406,17 @@ def main():
     )
 
     # Prepare everything with our `accelerator`.
-    (
-        model,
-        optimizer,
-        train_dataloader,
-        eval_dataloader,
-        lr_scheduler,
-    ) = accelerator.prepare(
-        model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
-    )
+    to_prepare = [model, optimizer, train_dataloader, lr_scheduler]
+    if args.validation_file is not None:
+        to_prepare.append(eval_dataloader)
+
+    prepared = accelerator.prepare(*to_prepare)
+
+    # Unpack depending on whether eval_dataloader exists
+    if args.validation_file is not None:
+        model, optimizer, train_dataloader, lr_scheduler, eval_dataloader = prepared
+    else:
+        model, optimizer, train_dataloader, lr_scheduler = prepared
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(
@@ -550,151 +570,164 @@ def main():
             if completed_steps >= args.max_train_steps:
                 break
 
-        model.eval()
-        current_metric = None
-        if args.model_type == "inserter":
-            losses = []
-            for step, batch in enumerate(eval_dataloader):
-                with torch.no_grad():
-                    outputs = model(**batch)
+        if args.validation_file is not None:
+            model.eval()
+            current_metric = None
+            if args.model_type == "inserter":
+                losses = []
+                for step, batch in enumerate(eval_dataloader):
+                    with torch.no_grad():
+                        outputs = model(**batch)
 
-                    loss = outputs.loss
-                    losses.append(
-                        accelerator.gather_for_metrics(
-                            loss.repeat(args.per_device_eval_batch_size)
+                        loss = outputs.loss
+                        losses.append(
+                            accelerator.gather_for_metrics(
+                                loss.repeat(args.per_device_eval_batch_size)
+                            )
                         )
-                    )
 
-            losses = torch.cat(losses)
-            try:
-                eval_loss = torch.mean(losses)
-                perplexity = math.exp(eval_loss)
-            except OverflowError:
-                perplexity = float("inf")
+                losses = torch.cat(losses)
+                try:
+                    eval_loss = torch.mean(losses)
+                    perplexity = math.exp(eval_loss)
+                except OverflowError:
+                    perplexity = float("inf")
 
-            accelerator.print(f"epoch {epoch}:", {"perplexity": perplexity})
-            current_metric = -perplexity
-        elif args.model_type == "tagger":
-            for step, batch in enumerate(eval_dataloader):
-                with torch.no_grad():
-                    outputs = model(**batch)
+                accelerator.print(f"epoch {epoch}:", {"perplexity": perplexity})
+                current_metric = -perplexity
+            elif args.model_type == "tagger":
+                for step, batch in enumerate(eval_dataloader):
+                    with torch.no_grad():
+                        outputs = model(**batch)
 
-                tag_logits, pointing_logits = outputs
-                predicted_tags = torch.argmax(tag_logits, dim=-1)
-                true_tags = batch["edit_tags"]
-                predicted_pointers = torch.argmax(pointing_logits, dim=-1)
-                true_pointers = batch["pointers"]
+                    tag_logits, pointing_logits = outputs
+                    predicted_tags = torch.argmax(tag_logits, dim=-1)
+                    true_tags = batch["edit_tags"]
+                    predicted_pointers = torch.argmax(pointing_logits, dim=-1)
+                    true_pointers = batch["pointers"]
 
-                preds, refs = get_labels(predicted_tags, true_tags)
+                    preds, refs = get_labels(predicted_tags, true_tags)
 
-                metric.add_batch(
-                    predictions=preds,
-                    references=refs,
-                )  # predictions and preferences are expected to be a nested list of labels, not label_ids
+                    metric.add_batch(
+                        predictions=preds,
+                        references=refs,
+                    )  # predictions and preferences are expected to be a nested list of labels, not label_ids
 
-            eval_metric = compute_metrics()
-            accelerator.print(f"epoch {epoch}:", eval_metric)
-            current_metric = eval_metric["f1"]
-        elif args.model_type == "joint":
-            losses = []
-            for step, batch in enumerate(eval_dataloader):
-                with torch.no_grad():
-                    tag_logits, pointing_logits, mlm_logits = model(**batch)
-                    loss_fct = nn.CrossEntropyLoss()
-                    loss = loss_fct(
-                        mlm_logits.view(-1, mlm_logits.size(-1)),
-                        batch["masked_lm_ids"].view(-1),
-                    )
-                    losses.append(
-                        accelerator.gather_for_metrics(
-                            loss.repeat(args.per_device_eval_batch_size)
+                eval_metric = compute_metrics()
+                accelerator.print(f"epoch {epoch}:", eval_metric)
+                current_metric = eval_metric["f1"]
+            elif args.model_type == "joint":
+                losses = []
+                for step, batch in enumerate(eval_dataloader):
+                    with torch.no_grad():
+                        tag_logits, pointing_logits, mlm_logits = model(**batch)
+                        loss_fct = nn.CrossEntropyLoss()
+                        loss = loss_fct(
+                            mlm_logits.view(-1, mlm_logits.size(-1)),
+                            batch["masked_lm_ids"].view(-1),
                         )
-                    )
+                        losses.append(
+                            accelerator.gather_for_metrics(
+                                loss.repeat(args.per_device_eval_batch_size)
+                            )
+                        )
 
-                predicted_tags = torch.argmax(tag_logits, dim=-1)
-                true_tags = batch["edit_tags"]
-                predicted_pointers = torch.argmax(pointing_logits, dim=-1)
-                true_pointers = batch["pointers"]
+                    predicted_tags = torch.argmax(tag_logits, dim=-1)
+                    true_tags = batch["edit_tags"]
+                    predicted_pointers = torch.argmax(pointing_logits, dim=-1)
+                    true_pointers = batch["pointers"]
 
-                preds, refs = get_labels(predicted_tags, true_tags)
+                    preds, refs = get_labels(predicted_tags, true_tags)
 
-                metric.add_batch(
-                    predictions=preds,
-                    references=refs,
-                )  # predictions and preferences are expected to be a nested list of labels, not label_ids
+                    metric.add_batch(
+                        predictions=preds,
+                        references=refs,
+                    )  # predictions and preferences are expected to be a nested list of labels, not label_ids
 
-            eval_metric = compute_metrics()
-            losses = torch.cat(losses)
-            try:
-                eval_loss = torch.mean(losses)
-                perplexity = math.exp(eval_loss)
-            except OverflowError:
-                perplexity = float("inf")
+                eval_metric = compute_metrics()
+                losses = torch.cat(losses)
+                try:
+                    eval_loss = torch.mean(losses)
+                    perplexity = math.exp(eval_loss)
+                except OverflowError:
+                    perplexity = float("inf")
 
-            accelerator.print(
-                f"epoch {epoch}:", eval_metric, {"perplexity": perplexity}
-            )
-            current_metric = (eval_metric["f1"] + (1 / perplexity)) / 2
-
-        if args.model_type == "inserter":
-            current_metrics = {"perplexity": perplexity}
-        elif args.model_type == "tagger":
-            current_metrics = {
-                f"eval_{k}": (
-                    float(v)
-                    if isinstance(v, (np.float64, np.float32))
-                    else int(v) if isinstance(v, (np.int64, np.int32)) else v
-                )
-                for k, v in eval_metric.items()
-            }
-        elif args.model_type == "joint":
-            current_metrics = {
-                f"eval_{k}": (
-                    float(v)
-                    if isinstance(v, (np.float64, np.float32))
-                    else int(v) if isinstance(v, (np.int64, np.int32)) else v
-                )
-                for k, v in eval_metric.items()
-            }
-            current_metrics["perplexity"] = perplexity
-
-        if early_stopping_patience is not None:
-            if best_metric is None or current_metric > best_metric:
-                best_metric = current_metric
-                best_metrics = current_metrics
-                patience_counter = 0
-                # Save the best model
-                if args.output_dir is not None:
-                    accelerator.wait_for_everyone()
-                    unwrapped_model = accelerator.unwrap_model(model)
-                    unwrapped_model.save_pretrained(
-                        args.output_dir,
-                        is_main_process=accelerator.is_main_process,
-                        save_function=accelerator.save,
-                        safe_serialization=False,
-                    )
-                    if "with_graph" in args.train_file:
-                        tokenizer.save_pretrained(args.output_dir)
-            else:
-                patience_counter += 1
                 accelerator.print(
-                    f"No improvement in metric. Patience counter: {patience_counter}/{early_stopping_patience}"
+                    f"epoch {epoch}:", eval_metric, {"perplexity": perplexity}
                 )
+                current_metric = (eval_metric["f1"] + (1 / perplexity)) / 2
 
-            if patience_counter >= early_stopping_patience:
-                accelerator.print("Early stopping triggered!")
-                if args.output_dir is not None and best_metrics is not None:
-                    with open(
-                        os.path.join(args.output_dir, "eval_scores.json"), "w"
-                    ) as f:
-                        json.dump(best_metrics, f)
-                break
+            if args.model_type == "inserter":
+                current_metrics = {"perplexity": perplexity}
+            elif args.model_type == "tagger":
+                current_metrics = {
+                    f"eval_{k}": (
+                        float(v)
+                        if isinstance(v, (np.float64, np.float32))
+                        else int(v) if isinstance(v, (np.int64, np.int32)) else v
+                    )
+                    for k, v in eval_metric.items()
+                }
+            elif args.model_type == "joint":
+                current_metrics = {
+                    f"eval_{k}": (
+                        float(v)
+                        if isinstance(v, (np.float64, np.float32))
+                        else int(v) if isinstance(v, (np.int64, np.int32)) else v
+                    )
+                    for k, v in eval_metric.items()
+                }
+                current_metrics["perplexity"] = perplexity
+
+            if early_stopping_patience is not None:
+                if best_metric is None or current_metric > best_metric:
+                    best_metric = current_metric
+                    best_metrics = current_metrics
+                    patience_counter = 0
+                    # Save the best model
+                    if args.output_dir is not None:
+                        accelerator.wait_for_everyone()
+                        unwrapped_model = accelerator.unwrap_model(model)
+                        unwrapped_model.save_pretrained(
+                            args.output_dir,
+                            is_main_process=accelerator.is_main_process,
+                            save_function=accelerator.save,
+                            safe_serialization=False,
+                        )
+                        if "with_graph" in args.train_file:
+                            tokenizer.save_pretrained(args.output_dir)
+                else:
+                    patience_counter += 1
+                    accelerator.print(
+                        f"No improvement in metric. Patience counter: {patience_counter}/{early_stopping_patience}"
+                    )
+
+                if patience_counter >= early_stopping_patience:
+                    accelerator.print("Early stopping triggered!")
+                    if args.output_dir is not None and best_metrics is not None:
+                        with open(
+                            os.path.join(args.output_dir, "eval_scores.json"), "w"
+                        ) as f:
+                            json.dump(best_metrics, f)
+                    break
 
         if args.checkpointing_steps == "epoch":
             output_dir = f"epoch_{epoch}"
             if args.output_dir is not None:
                 output_dir = os.path.join(args.output_dir, output_dir)
             accelerator.save_state(output_dir)
+        else:
+            if args.output_dir is not None and args.validation_file is None:
+                accelerator.wait_for_everyone()
+                unwrapped_model = accelerator.unwrap_model(model)
+                unwrapped_model.save_pretrained(
+                    args.output_dir,
+                    is_main_process=accelerator.is_main_process,
+                    save_function=accelerator.save,
+                    safe_serialization=False,
+                )
+                if "with_graph" in args.train_file:
+                    tokenizer.save_pretrained(args.output_dir)
 
     # If we finished all epochs without early stopping, save metrics now
     if (
